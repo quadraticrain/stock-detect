@@ -51,4 +51,9 @@ CONSENSUS_THRESHOLD = 1.5  # buy count must be 50% higher than sell count
 MA_WINDOWS = (7, 30, 90)
 EVAL_WINDOWS = {"1w": 7, "1m": 30, "3m": 90}
 
-USER_AGENT = "stock-detect/0.1 (research tool; Buz-deMelo methodology)"
+USER_AGENT = "stock-detect/0.2 (research tool; X + WSB signals)"
+
+# Default X accounts — AI/semi supply-chain analysts (X-first workflow)
+DEFAULT_X_ACCOUNTS = [
+    "aleabitoreddit",
+]

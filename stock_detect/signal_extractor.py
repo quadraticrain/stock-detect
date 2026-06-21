@@ -1,4 +1,4 @@
-"""Extract buy/hold/sell signals from WSB post text (Buz & de Melo, 2023)."""
+"""Extract buy/hold/sell signals from social post text."""
 
 from __future__ import annotations
 
@@ -21,6 +21,7 @@ from stock_detect.config import (
     SELL_WORDS,
     SINGLE_CHAR_TICKERS,
 )
+from stock_detect.models import SocialPost
 
 
 @dataclass
@@ -30,7 +31,8 @@ class PostSignal:
     buy_score: float
     hold_score: float
     sell_score: float
-    flair: str
+    source: str
+    author: str
     title: str
     created: datetime
     score: int
@@ -45,11 +47,33 @@ class DailyConsensus:
     sell_posts: int = 0
     hold_posts: int = 0
     signal: str = "neutral"
+    sources: str = ""
 
 
-def _extract_tickers(text: str, valid_tickers: set[str]) -> dict[str, int]:
+def _extract_tickers(
+    text: str,
+    valid_tickers: set[str] | None,
+    *,
+    all_cashtags: bool = False,
+    known_tickers: list[str] | None = None,
+) -> dict[str, int]:
     counts: dict[str, int] = {}
     upper = text.upper()
+
+    if known_tickers:
+        for ticker in known_tickers:
+            counts[ticker.upper()] = counts.get(ticker.upper(), 0) + 1
+
+    if all_cashtags:
+        for match in re.finditer(r"\$([A-Z]{1,5})\b", upper):
+            ticker = match.group(1)
+            if ticker in AMBIGUOUS_TICKERS and f"${ticker}" not in upper:
+                continue
+            counts[ticker] = counts.get(ticker, 0) + 1
+        return counts
+
+    if not valid_tickers:
+        return counts
 
     for match in re.finditer(r"\$([A-Z]{1,5})\b", upper):
         ticker = match.group(1)
@@ -100,7 +124,9 @@ def classify_flair(flair: str | None) -> str:
     return "unknown"
 
 
-def is_actionable_post(flair: str | None, body: str) -> bool:
+def is_actionable_post(source: str, flair: str | None, body: str) -> bool:
+    if source == "x":
+        return bool(body and body.strip())
     if classify_flair(flair) == "reactive":
         return False
     if classify_flair(flair) == "proactive":
@@ -121,24 +147,32 @@ def _recommendation(buy: float, hold: float, sell: float) -> tuple[str, float, f
 
 
 def extract_post_signals(
-    title: str,
-    body: str,
-    flair: str | None,
+    text: str,
     created: datetime,
     score: int,
-    valid_tickers: set[str],
+    valid_tickers: set[str] | None,
     *,
+    source: str = "wsb",
+    author: str = "",
+    flair: str | None = None,
+    known_tickers: list[str] | None = None,
+    all_cashtags: bool = False,
     use_proximity: bool = False,
 ) -> list[PostSignal]:
-    if not is_actionable_post(flair, body):
+    if not is_actionable_post(source, flair, text):
         return []
 
-    text = f"{title}\n{body or ''}"
-    ticker_counts = _extract_tickers(text, valid_tickers)
+    ticker_counts = _extract_tickers(
+        text,
+        valid_tickers,
+        all_cashtags=all_cashtags,
+        known_tickers=known_tickers,
+    )
     if not ticker_counts:
         return []
 
     signals: list[PostSignal] = []
+    preview = text.replace("\n", " ")[:120]
     for ticker in ticker_counts:
         if use_proximity:
             buy = _proximity_score(text, ticker, BUY_WORDS)
@@ -155,14 +189,35 @@ def extract_post_signals(
                 buy_score=b,
                 hold_score=h,
                 sell_score=s,
-                flair=(flair or "").lower(),
-                title=title[:120],
+                source=source,
+                author=author,
+                title=preview,
                 created=created,
                 score=score,
                 use_proximity=use_proximity,
             )
         )
     return signals
+
+
+def extract_social_post_signals(
+    post: SocialPost,
+    valid_tickers: set[str] | None,
+    *,
+    all_cashtags: bool = False,
+    use_proximity: bool = False,
+) -> list[PostSignal]:
+    return extract_post_signals(
+        post.text,
+        post.created,
+        post.score,
+        valid_tickers,
+        source=post.source,
+        author=post.author,
+        known_tickers=post.tickers if post.source == "x" else None,
+        all_cashtags=all_cashtags or post.source == "x",
+        use_proximity=use_proximity,
+    )
 
 
 def aggregate_daily_consensus(signals: Iterable[PostSignal]) -> list[DailyConsensus]:
@@ -180,6 +235,9 @@ def aggregate_daily_consensus(signals: Iterable[PostSignal]) -> list[DailyConsen
             bucket.sell_posts += 1
         else:
             bucket.hold_posts += 1
+        sources = {s.strip() for s in bucket.sources.split(",") if s.strip()}
+        sources.add(sig.source)
+        bucket.sources = ",".join(sorted(sources))
 
     results: list[DailyConsensus] = []
     for bucket in buckets.values():
