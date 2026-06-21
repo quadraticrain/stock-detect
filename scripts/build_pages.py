@@ -11,10 +11,12 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from stock_detect.analyzer import SignalAnalyzer  # noqa: E402
+from stock_detect.env import bootstrap  # noqa: E402
 from stock_detect.report import refresh_site, write_site  # noqa: E402
 
 
 def main() -> int:
+    bootstrap()
     parser = argparse.ArgumentParser(description="Build GitHub Pages report")
     parser.add_argument("--output", default="site", help="Output directory")
     parser.add_argument("--merge-from", help="Existing gh-pages dir to preserve history")

@@ -33,8 +33,13 @@ class FetchWindowTests(unittest.TestCase):
 
 
 class TwitterFetcherTests(unittest.TestCase):
-    def test_syndication_failure_skips_without_retry(self):
+    def _guest_only_fetcher(self) -> TwitterFetcher:
         fetcher = TwitterFetcher()
+        fetcher.x_api.is_configured = MagicMock(return_value=False)  # type: ignore[method-assign]
+        return fetcher
+
+    def test_syndication_failure_skips_without_retry(self):
+        fetcher = self._guest_only_fetcher()
         fetcher._resolve_user_id = MagicMock(return_value=None)  # type: ignore[method-assign]
         fetcher._load_graphql_ops = MagicMock(return_value={})  # type: ignore[method-assign]
 
@@ -51,7 +56,7 @@ class TwitterFetcherTests(unittest.TestCase):
         self.assertEqual(fetcher.session.get.call_count, 1)
 
     def test_graphql_page_failure_skips_without_retry(self):
-        fetcher = TwitterFetcher()
+        fetcher = self._guest_only_fetcher()
         fetcher._resolve_user_id = MagicMock(return_value="123")  # type: ignore[method-assign]
         fetcher._load_graphql_ops = MagicMock(return_value={"UserTweets": ("qid", {}, {})})  # type: ignore[method-assign]
         fetcher._guest_headers = MagicMock(return_value={})  # type: ignore[method-assign]

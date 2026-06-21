@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import os
 import re
 import time
@@ -11,12 +12,15 @@ from datetime import datetime, timezone
 import requests
 
 from stock_detect.config import REQUEST_DELAY_SEC, USER_AGENT
+from stock_detect import config
 from stock_detect.fetch_window import FetchStats, FetchWindow
 from stock_detect.models import SocialPost
 
 _API_BASE = "https://api.twitter.com/2"
+_OAUTH2_TOKEN = "https://api.twitter.com/2/oauth2/token"
 _TWEET_FIELDS = "created_at,public_metrics,entities,note_tweet,referenced_tweets"
 _USER_FIELDS = "username"
+_DEFAULT_SCOPES = "tweet.read users.read offline.access"
 
 
 @dataclass
@@ -24,6 +28,8 @@ class XApiCredentials:
     """Credentials loaded from environment (never commit real values)."""
 
     bearer_token: str | None = None
+    client_id: str | None = None
+    client_secret: str | None = None
     api_key: str | None = None
     api_secret: str | None = None
     access_token: str | None = None
@@ -32,16 +38,23 @@ class XApiCredentials:
     @classmethod
     def from_env(cls) -> XApiCredentials:
         return cls(
-            bearer_token=_env("X_BEARER_TOKEN", "X_API_BEARER_TOKEN"),
-            api_key=_env("X_API_KEY", "X_CONSUMER_KEY"),
-            api_secret=_env("X_API_SECRET", "X_CONSUMER_SECRET"),
-            access_token=_env("X_ACCESS_TOKEN"),
-            access_token_secret=_env("X_ACCESS_TOKEN_SECRET"),
+            bearer_token=_env("X_BEARER_TOKEN", "X_API_BEARER_TOKEN") or config.X_BEARER_TOKEN or None,
+            client_id=_env("X_CLIENT_ID", "X_API_CLIENT_ID") or config.X_CLIENT_ID or None,
+            client_secret=_env("X_CLIENT_SECRET", "X_API_CLIENT_SECRET") or config.X_CLIENT_SECRET or None,
+            api_key=_env("X_API_KEY", "X_CONSUMER_KEY") or config.X_API_KEY or None,
+            api_secret=_env("X_API_SECRET", "X_CONSUMER_SECRET") or config.X_API_SECRET or None,
+            access_token=_env("X_ACCESS_TOKEN") or config.X_ACCESS_TOKEN or None,
+            access_token_secret=_env("X_ACCESS_TOKEN_SECRET") or config.X_ACCESS_TOKEN_SECRET or None,
         )
 
     def is_configured(self) -> bool:
         if self.bearer_token:
             return True
+        if self.client_id and self.client_secret:
+            return True
+        return self.has_oauth1()
+
+    def has_oauth1(self) -> bool:
         return all(
             [
                 self.api_key,
@@ -54,7 +67,11 @@ class XApiCredentials:
     def auth_mode(self) -> str | None:
         if self.bearer_token:
             return "oauth2_bearer"
-        if self.is_configured():
+        if self.api_key and self.api_secret and not self.client_id:
+            return "oauth2_app_only"
+        if self.client_id and self.client_secret:
+            return "oauth2_client_credentials"
+        if self.has_oauth1():
             return "oauth1_user"
         return None
 
@@ -79,6 +96,8 @@ class XApiClient:
         self.credentials = credentials or XApiCredentials.from_env()
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": user_agent})
+        self._runtime_bearer: str | None = None
+        self._runtime_bearer_expires_at: float = 0.0
 
     def is_configured(self) -> bool:
         return self.credentials.is_configured()
@@ -91,8 +110,11 @@ class XApiClient:
         max_pages: int,
         max_posts: int,
         stats: FetchStats,
+        since_id: str | None = None,
+        user_id: str | None = None,
     ) -> list[SocialPost]:
-        user_id = self._resolve_user_id(screen_name, stats)
+        if not user_id:
+            user_id = self.resolve_user_id(screen_name, stats)
         if not user_id:
             return []
 
@@ -112,6 +134,8 @@ class XApiClient:
                 "expansions": "author_id",
                 "user.fields": _USER_FIELDS,
             }
+            if since_id:
+                params["since_id"] = since_id
             if pagination_token:
                 params["pagination_token"] = pagination_token
 
@@ -146,6 +170,9 @@ class XApiClient:
 
         return posts[:max_posts]
 
+    def resolve_user_id(self, screen_name: str, stats: FetchStats) -> str | None:
+        return self._resolve_user_id(screen_name, stats)
+
     def _resolve_user_id(self, screen_name: str, stats: FetchStats) -> str | None:
         username = screen_name.lstrip("@")
         try:
@@ -165,14 +192,84 @@ class XApiClient:
             return None
 
     def _auth_headers(self) -> dict[str, str]:
-        if self.credentials.bearer_token:
-            return {"Authorization": f"Bearer {self.credentials.bearer_token}"}
+        bearer = self._resolve_bearer_token()
+        if bearer:
+            return {"Authorization": f"Bearer {bearer}"}
         return {}
 
-    def _oauth1_auth(self):
+    def _resolve_bearer_token(self) -> str | None:
         if self.credentials.bearer_token:
+            return self.credentials.bearer_token
+        if self._runtime_bearer and time.time() < self._runtime_bearer_expires_at:
+            return self._runtime_bearer
+        if self.credentials.api_key and self.credentials.api_secret:
+            token, expires_in = self._fetch_legacy_app_token(
+                self.credentials.api_key,
+                self.credentials.api_secret,
+            )
+            if token:
+                self._runtime_bearer = token
+                self._runtime_bearer_expires_at = time.time() + max(60, expires_in - 60)
+                return token
+        if self.credentials.client_id and self.credentials.client_secret:
+            token, expires_in = self._fetch_oauth2_client_token()
+            if token:
+                self._runtime_bearer = token
+                self._runtime_bearer_expires_at = time.time() + max(60, expires_in - 60)
+                return token
+        return None
+
+    def _fetch_legacy_app_token(self, api_key: str, api_secret: str) -> tuple[str | None, int]:
+        basic = base64.b64encode(f"{api_key}:{api_secret}".encode()).decode()
+        try:
+            resp = self.session.post(
+                "https://api.x.com/oauth2/token",
+                headers={
+                    "Authorization": f"Basic {basic}",
+                    "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+                },
+                data={"grant_type": "client_credentials"},
+                timeout=30,
+            )
+            if resp.status_code != 200:
+                return None, 0
+            payload = resp.json()
+            return payload.get("access_token"), int(payload.get("expires_in") or 7200)
+        except (requests.RequestException, ValueError, TypeError):
+            return None, 0
+
+    def _fetch_oauth2_client_token(self) -> tuple[str | None, int]:
+        client_id = self.credentials.client_id or ""
+        client_secret = self.credentials.client_secret or ""
+        client_type = _env("X_CLIENT_TYPE") or "third_party_app"
+        basic = base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
+        try:
+            resp = self.session.post(
+                _OAUTH2_TOKEN,
+                headers={
+                    "Authorization": f"Basic {basic}",
+                    "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+                },
+                data={
+                    "grant_type": "client_credentials",
+                    "client_id": client_id,
+                    "client_secret": client_secret,
+                    "client_type": client_type,
+                    "scope": _DEFAULT_SCOPES,
+                },
+                timeout=30,
+            )
+            if resp.status_code != 200:
+                return None, 0
+            payload = resp.json()
+            return payload.get("access_token"), int(payload.get("expires_in") or 7200)
+        except (requests.RequestException, ValueError, TypeError):
+            return None, 0
+
+    def _oauth1_auth(self):
+        if self._resolve_bearer_token():
             return None
-        if not self.credentials.is_configured():
+        if not self.credentials.has_oauth1():
             return None
         from requests_oauthlib import OAuth1
 

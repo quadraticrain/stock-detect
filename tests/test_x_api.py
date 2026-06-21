@@ -23,9 +23,21 @@ class XApiCredentialsTests(unittest.TestCase):
             os.environ,
             {"X_API_KEY": "k", "X_API_SECRET": "s"},
             clear=True,
+        ), patch("stock_detect.x_api_client.config.X_CLIENT_ID", ""), patch(
+            "stock_detect.x_api_client.config.X_CLIENT_SECRET", ""
         ):
             creds = XApiCredentials.from_env()
             self.assertFalse(creds.is_configured())
+
+    def test_client_credentials_configured(self):
+        with patch.dict(
+            os.environ,
+            {"X_CLIENT_ID": "id", "X_CLIENT_SECRET": "secret"},
+            clear=True,
+        ):
+            creds = XApiCredentials.from_env()
+            self.assertTrue(creds.is_configured())
+            self.assertEqual(creds.auth_mode(), "oauth2_client_credentials")
 
 
 class XApiClientTests(unittest.TestCase):
