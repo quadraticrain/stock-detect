@@ -210,7 +210,7 @@ def build_parser() -> argparse.ArgumentParser:
         default="aleabitoreddit",
         help="Comma-separated X accounts (default: aleabitoreddit)",
     )
-    scan.add_argument("--limit", type=int, default=300, help="Max posts to analyze")
+    scan.add_argument("--limit", type=int, default=4000, help="Max posts to fetch/analyze")
     scan.add_argument("--sort", choices=["new", "hot", "top"], default="new", help="WSB sort order")
     scan.add_argument("--subreddit", default="wallstreetbets")
     scan.add_argument("--file", help="Load posts from local JSON instead of fetching")

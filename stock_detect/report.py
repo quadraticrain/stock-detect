@@ -31,7 +31,7 @@ def report_to_dict(report: AnalysisReport, *, accounts: list[str]) -> dict:
     account_slug = "_".join(a.lower() for a in accounts) or "unknown"
     run_id = f"{now.strftime('%Y%m%dT%H%M%SZ')}_{source}_{account_slug}"
 
-    return {
+    payload = {
         "id": run_id,
         "generated_at": now.isoformat(),
         "source": source,
@@ -63,6 +63,11 @@ def report_to_dict(report: AnalysisReport, *, accounts: list[str]) -> dict:
         "evaluation_ma30": eval_block(report.evaluation_ma30),
         "evaluation_ma90": eval_block(report.evaluation_ma90),
     }
+    if report.fetch_window is not None:
+        payload.update(report.fetch_window.to_dict())
+    if report.fetch_stats is not None:
+        payload.update(report.fetch_stats.to_dict())
+    return payload
 
 
 def run_entry(data: dict) -> dict:

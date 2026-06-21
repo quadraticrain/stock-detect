@@ -53,6 +53,13 @@ EVAL_WINDOWS = {"1w": 7, "1m": 30, "3m": 90}
 
 USER_AGENT = "stock-detect/0.2 (research tool; X + WSB signals)"
 
+# Fixed fetch window (paper-style ~63 trading days) and CI-safe caps
+FETCH_WINDOW_DAYS = 63
+MAX_FETCH_PAGES = 40
+MAX_FETCH_POSTS = 4000
+REQUEST_DELAY_SEC = 1.5
+REDDIT_PAGE_SIZE = 100
+
 # Default X accounts — AI/semi supply-chain analysts (X-first workflow)
 DEFAULT_X_ACCOUNTS = [
     "aleabitoreddit",
