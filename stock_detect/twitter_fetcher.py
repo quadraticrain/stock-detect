@@ -178,6 +178,11 @@ class TwitterFetcher:
         since_id = state.last_tweet_id if state else None
         user_id = state.user_id if state else None
 
+        if cached:
+            oldest_cached = min(p.created for p in cached)
+            if oldest_cached > window.after:
+                since_id = None
+
         if self.x_api.is_configured():
             stats.x_auth_mode = self.x_api.credentials.auth_mode()
             api_pages = INCREMENTAL_MAX_PAGES if since_id else min(max_pages, FULL_FETCH_MAX_PAGES)

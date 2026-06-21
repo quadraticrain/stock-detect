@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 
 import requests
 
-from stock_detect.config import REQUEST_DELAY_SEC, USER_AGENT
+from stock_detect.config import REQUEST_DELAY_SEC, USER_AGENT, X_API_TIMELINE_EXCLUDES
 from stock_detect import config
 from stock_detect.fetch_window import FetchStats, FetchWindow
 from stock_detect.models import SocialPost
@@ -118,9 +118,45 @@ class XApiClient:
         if not user_id:
             return []
 
+        screen_name = screen_name.lstrip("@").lower()
+        posts_by_id: dict[str, SocialPost] = {}
+        excludes = X_API_TIMELINE_EXCLUDES or (None,)
+
+        for exclude in excludes:
+            if len(posts_by_id) >= max_posts:
+                break
+            remaining = max_posts - len(posts_by_id)
+            batch = self._fetch_timeline_pages(
+                user_id,
+                screen_name,
+                window=window,
+                max_pages=max_pages,
+                max_posts=remaining,
+                stats=stats,
+                since_id=since_id,
+                exclude=exclude,
+            )
+            for post in batch:
+                posts_by_id.setdefault(post.id, post)
+
+        posts = list(posts_by_id.values())
+        posts.sort(key=lambda p: p.created, reverse=True)
+        return posts[:max_posts]
+
+    def _fetch_timeline_pages(
+        self,
+        user_id: str,
+        screen_name: str,
+        *,
+        window: FetchWindow,
+        max_pages: int,
+        max_posts: int,
+        stats: FetchStats,
+        since_id: str | None,
+        exclude: str | None,
+    ) -> list[SocialPost]:
         posts: list[SocialPost] = []
         pagination_token: str | None = None
-        screen_name = screen_name.lstrip("@").lower()
 
         for _ in range(max_pages):
             if len(posts) >= max_posts:
@@ -134,6 +170,8 @@ class XApiClient:
                 "expansions": "author_id",
                 "user.fields": _USER_FIELDS,
             }
+            if exclude:
+                params["exclude"] = exclude
             if since_id:
                 params["since_id"] = since_id
             if pagination_token:
