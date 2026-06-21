@@ -56,23 +56,39 @@ class TwitterFetcher:
 
     def fetch_user(self, screen_name: str) -> list[SocialPost]:
         url = _SYNDICATION.format(screen_name=screen_name.lstrip("@"))
-        resp = self.session.get(url, timeout=45)
-        resp.raise_for_status()
-        match = _NEXT_DATA.search(resp.text)
-        if not match:
-            raise RuntimeError(f"No timeline data returned for @{screen_name}")
+        last_error: Exception | None = None
+        for attempt in range(5):
+            try:
+                resp = self.session.get(url, timeout=45)
+                if resp.status_code == 429:
+                    time.sleep(2 ** attempt + 1)
+                    continue
+                resp.raise_for_status()
+                match = _NEXT_DATA.search(resp.text)
+                if not match:
+                    raise RuntimeError(f"No timeline data returned for @{screen_name}")
 
-        payload = json.loads(match.group(1))
-        entries = payload.get("props", {}).get("pageProps", {}).get("timeline", {}).get("entries", [])
-        posts: list[SocialPost] = []
-        for entry in entries:
-            if entry.get("type") != "tweet":
-                continue
-            tweet = entry.get("content", {}).get("tweet")
-            if not tweet:
-                continue
-            posts.append(_tweet_to_post(tweet, screen_name))
-        return posts
+                payload = json.loads(match.group(1))
+                entries = payload.get("props", {}).get("pageProps", {}).get("timeline", {}).get("entries", [])
+                posts: list[SocialPost] = []
+                for entry in entries:
+                    if entry.get("type") != "tweet":
+                        continue
+                    tweet = entry.get("content", {}).get("tweet")
+                    if not tweet:
+                        continue
+                    posts.append(_tweet_to_post(tweet, screen_name))
+                return posts
+            except requests.HTTPError as exc:
+                last_error = exc
+                if exc.response is not None and exc.response.status_code in {429, 502, 503}:
+                    time.sleep(2 ** attempt + 1)
+                    continue
+                raise
+        raise RuntimeError(
+            f"Unable to fetch @{screen_name} after retries (X rate limit). "
+            "Try again later or run workflow manually."
+        ) from last_error
 
     @classmethod
     def from_json_file(cls, path: str | Path) -> list[SocialPost]:
