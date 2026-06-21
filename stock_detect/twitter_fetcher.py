@@ -21,7 +21,13 @@ from stock_detect.config import (
     REQUEST_DELAY_SEC,
     USER_AGENT,
 )
-from stock_detect.fetch_window import FetchStats, FetchWindow, default_fetch_window, filter_to_window
+from stock_detect.fetch_window import (
+    FetchStats,
+    FetchWindow,
+    default_fetch_window,
+    filter_to_window,
+    gap_window_before,
+)
 from stock_detect.models import SocialPost
 from stock_detect.tweet_cache import TweetCache
 from stock_detect.x_api_client import XApiClient
@@ -175,33 +181,60 @@ class TwitterFetcher:
         stats.streams_used.append("MySQLCache")
 
         state = cache.get_state(screen_name)
-        since_id = state.last_tweet_id if state else None
         user_id = state.user_id if state else None
-
-        if cached:
-            oldest_cached = min(p.created for p in cached)
-            if oldest_cached > window.after:
-                since_id = None
+        oldest_cached = min((p.created for p in cached), default=None)
+        since_id = (state.last_tweet_id if state else None) or (
+            TweetCache.newest_tweet_id(cached) if cached else None
+        )
 
         if self.x_api.is_configured():
             stats.x_auth_mode = self.x_api.credentials.auth_mode()
-            api_pages = INCREMENTAL_MAX_PAGES if since_id else min(max_pages, FULL_FETCH_MAX_PAGES)
             if not user_id:
                 user_id = self.x_api.resolve_user_id(screen_name, stats)
                 if user_id:
                     cache.save_state(screen_name, user_id=user_id)
-            new_posts = self.x_api.fetch_user_timeline(
-                screen_name,
-                window=window,
-                max_pages=api_pages,
-                max_posts=max_posts,
-                stats=stats,
-                since_id=since_id,
-                user_id=user_id,
-            )
-            if new_posts:
-                stats.api_posts_new = cache.upsert_posts(new_posts)
-                newest = TweetCache.newest_tweet_id(new_posts)
+
+            api_posts_by_id: dict[str, SocialPost] = {}
+            gap = gap_window_before(window, oldest_cached) if oldest_cached else None
+
+            if gap is not None:
+                for post in self.x_api.fetch_user_timeline(
+                    screen_name,
+                    window=gap,
+                    max_pages=min(max_pages, FULL_FETCH_MAX_PAGES),
+                    max_posts=max_posts,
+                    stats=stats,
+                    since_id=None,
+                    user_id=user_id,
+                ):
+                    api_posts_by_id.setdefault(post.id, post)
+            elif not cached:
+                for post in self.x_api.fetch_user_timeline(
+                    screen_name,
+                    window=window,
+                    max_pages=min(max_pages, FULL_FETCH_MAX_PAGES),
+                    max_posts=max_posts,
+                    stats=stats,
+                    since_id=None,
+                    user_id=user_id,
+                ):
+                    api_posts_by_id.setdefault(post.id, post)
+
+            if cached and since_id:
+                for post in self.x_api.fetch_user_timeline(
+                    screen_name,
+                    window=window,
+                    max_pages=INCREMENTAL_MAX_PAGES,
+                    max_posts=max_posts,
+                    stats=stats,
+                    since_id=since_id,
+                    user_id=user_id,
+                ):
+                    api_posts_by_id.setdefault(post.id, post)
+
+            if api_posts_by_id:
+                stats.api_posts_new = cache.upsert_posts(list(api_posts_by_id.values()))
+                newest = TweetCache.newest_tweet_id(cached + list(api_posts_by_id.values()))
                 cache.save_state(
                     screen_name,
                     user_id=user_id,

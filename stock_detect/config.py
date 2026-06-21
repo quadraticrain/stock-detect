@@ -72,8 +72,8 @@ MYSQL_SERVICE = "stock_detect"
 MYSQL_TABLE_POSTS = f"{MYSQL_SERVICE}_x_posts"
 MYSQL_TABLE_STATE = f"{MYSQL_SERVICE}_x_fetch_state"
 
-# X API timeline: two passes — replies (exclude retweets) + originals (exclude replies)
-X_API_TIMELINE_EXCLUDES = ("retweets", "replies")
+# X API timeline: exclude retweets only (includes replies + originals; single pass)
+X_API_TIMELINE_EXCLUDES = ("retweets",)
 INCREMENTAL_MAX_PAGES = 8
 FULL_FETCH_MAX_PAGES = MAX_FETCH_PAGES
 

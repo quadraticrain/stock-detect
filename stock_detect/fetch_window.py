@@ -70,3 +70,16 @@ def default_fetch_window(
 
 def filter_to_window(items: list, window: FetchWindow, *, created_at) -> list:
     return [item for item in items if window.contains(created_at(item))]
+
+
+def gap_window_before(window: FetchWindow, oldest_cached: datetime) -> FetchWindow | None:
+    """Sub-window [window.after, oldest_cached) when cache does not reach the lookback start."""
+    if oldest_cached.tzinfo is None:
+        oldest_cached = oldest_cached.replace(tzinfo=timezone.utc)
+    if oldest_cached <= window.after:
+        return None
+    return FetchWindow(
+        after=window.after,
+        before=oldest_cached,
+        window_days=window.window_days,
+    )

@@ -96,7 +96,7 @@ class XApiClientTests(unittest.TestCase):
             "meta": {},
         }
 
-        client.session.get = MagicMock(side_effect=[page1, page2, page2])
+        client.session.get = MagicMock(side_effect=[page1, page2])
 
         with patch("stock_detect.x_api_client.time.sleep"):
             posts = client.fetch_user_timeline(
@@ -109,8 +109,8 @@ class XApiClientTests(unittest.TestCase):
             )
 
         self.assertEqual(len(posts), 2)
-        self.assertEqual(stats.pages_fetched, 3)
-        self.assertEqual(client.session.get.call_count, 3)
+        self.assertEqual(stats.pages_fetched, 2)
+        self.assertEqual(client.session.get.call_count, 2)
 
     def test_api_failure_skips_without_retry(self):
         creds = XApiCredentials(bearer_token="token")
@@ -124,7 +124,7 @@ class XApiClientTests(unittest.TestCase):
         user_resp = MagicMock(status_code=200)
         user_resp.json.return_value = {"data": {"id": "999"}}
         fail_resp = MagicMock(status_code=401, text="unauthorized")
-        client.session.get = MagicMock(side_effect=[fail_resp, fail_resp])
+        client.session.get = MagicMock(side_effect=[fail_resp])
 
         posts = client.fetch_user_timeline(
             "demo",
@@ -135,8 +135,8 @@ class XApiClientTests(unittest.TestCase):
             user_id="999",
         )
         self.assertEqual(posts, [])
-        self.assertEqual(stats.pages_skipped, 2)
-        self.assertEqual(client.session.get.call_count, 2)
+        self.assertEqual(stats.pages_skipped, 1)
+        self.assertEqual(client.session.get.call_count, 1)
 
 
 if __name__ == "__main__":
