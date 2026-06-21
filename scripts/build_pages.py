@@ -17,6 +17,7 @@ from stock_detect.report import write_site  # noqa: E402
 def main() -> int:
     parser = argparse.ArgumentParser(description="Build GitHub Pages report")
     parser.add_argument("--output", default="site", help="Output directory")
+    parser.add_argument("--merge-from", help="Existing gh-pages dir to preserve history")
     parser.add_argument("--source", choices=["x", "wsb", "both"], default="x")
     parser.add_argument("--accounts", default="aleabitoreddit")
     parser.add_argument("--limit", type=int, default=300)
@@ -30,7 +31,12 @@ def main() -> int:
         limit=args.limit,
         evaluate=not args.no_eval,
     )
-    out = write_site(args.output, report, accounts=accounts)
+    out = write_site(
+        args.output,
+        report,
+        accounts=accounts,
+        merge_from=args.merge_from,
+    )
     print(f"Wrote {out.resolve()}")
     return 0
 

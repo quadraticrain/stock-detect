@@ -36,8 +36,20 @@ jobs:
       - name: Run tests
         run: python -m unittest discover -s tests -q
 
+      - name: Fetch existing gh-pages for history
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          path: gh-pages-prev
+        continue-on-error: true
+
       - name: Build report site
-        run: python scripts/build_pages.py --output site --source x --accounts aleabitoreddit
+        run: |
+          python scripts/build_pages.py \
+            --output site \
+            --merge-from gh-pages-prev \
+            --source x \
+            --accounts aleabitoreddit
 
       - name: Deploy to gh-pages
         uses: peaceiris/actions-gh-pages@v4
@@ -45,5 +57,6 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./site
           publish_branch: gh-pages
-          force_orphan: true
-          commit_message: "chore: update scan report"
+          force_orphan: false
+          keep_files: true
+          commit_message: "chore: add CI scan report"
