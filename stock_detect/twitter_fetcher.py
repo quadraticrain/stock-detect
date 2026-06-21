@@ -1,4 +1,4 @@
-"""Fetch public X/Twitter timelines via GraphQL guest API + syndication fallback."""
+"""Fetch X/Twitter timelines via official API (OAuth) with guest API fallback."""
 
 from __future__ import annotations
 
@@ -21,6 +21,7 @@ from stock_detect.config import (
 )
 from stock_detect.fetch_window import FetchStats, FetchWindow, default_fetch_window, filter_to_window
 from stock_detect.models import SocialPost
+from stock_detect.x_api_client import XApiClient
 
 _SYNDICATION = "https://syndication.twitter.com/srv/timeline-profile/screen-name/{screen_name}"
 _FXTWITTER_USER = "https://api.fxtwitter.com/{screen_name}"
@@ -53,6 +54,7 @@ class TwitterFetcher:
         self.last_stats = FetchStats()
         self._graphql_ops: dict[str, tuple[str, dict, dict]] | None = None
         self._guest_token: str | None = None
+        self.x_api = XApiClient()
 
     def fetch_accounts(
         self,
@@ -133,6 +135,22 @@ class TwitterFetcher:
         stats: FetchStats,
     ) -> list[SocialPost]:
         posts_by_id: dict[str, SocialPost] = {}
+
+        if self.x_api.is_configured():
+            stats.x_auth_mode = self.x_api.credentials.auth_mode()
+            api_posts = self.x_api.fetch_user_timeline(
+                screen_name,
+                window=window,
+                max_pages=max_pages,
+                max_posts=max_posts,
+                stats=stats,
+            )
+            if api_posts or stats.pages_fetched > 0:
+                stats.streams_used.append("XApiV2")
+                for post in api_posts:
+                    posts_by_id.setdefault(post.id, post)
+                return list(posts_by_id.values())[:max_posts]
+
         user_id = self._resolve_user_id(screen_name)
         if user_id:
             pages_per_stream = max(3, max_pages // len(_GRAPHQL_STREAMS))

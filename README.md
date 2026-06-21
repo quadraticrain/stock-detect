@@ -10,9 +10,10 @@
 
 | 优先级 | 来源 | 说明 |
 |--------|------|------|
-| 1 | **X/Twitter** | 默认；通过 syndication 嵌入抓取公开时间线，无需 API Key |
-| 2 | WSB | `--source wsb`；Reddit 归档 API |
-| 合并 | 两者 | `--source both` |
+| 1 | **X 官方 API（OAuth）** | 推荐；配置 `X_BEARER_TOKEN` 后使用 API v2，含回复帖，数据完整 |
+| 2 | Guest GraphQL + syndication | 未配置 OAuth 时的回退方案，可能缺失近期回复 |
+| 3 | WSB | `--source wsb`；Reddit 归档 API |
+| 合并 | X + WSB | `--source both` |
 
 ## 默认监控账号
 
@@ -27,7 +28,83 @@ git clone https://github.com/quadraticrain/stock-detect.git
 cd stock-detect
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
+cp .env.example .env   # 填入 X API 凭证（见下文）
 ```
+
+## X 官方 API 开通与配置（推荐）
+
+未配置 OAuth 时，工具会回退到 Guest GraphQL / syndication，**可能抓不到近期回复帖**（如 `@aleabitoreddit` 的 `$SIVE` 推文）。生产环境请使用 X 官方 API。
+
+### 1. 注册开发者账号
+
+1. 打开 [developer.x.com](https://developer.x.com/) 并用 X 账号登录  
+2. 完成开发者协议与应用用途说明（选择 *Making a bot* 或 *Exploring the API* 等研究用途即可）
+
+### 2. 创建 Project 与 App
+
+1. 进入 **Developer Portal → Projects & Apps → Create Project**  
+2. 填写项目名称与用途描述  
+3. 创建 App（或使用默认 App），记下 **App 名称**
+
+### 3. 设置 App 权限
+
+1. 打开 App → **Settings → User authentication settings**（若使用 OAuth 1.0a）  
+2. **App permissions** 设为 **Read**（只读即可）  
+3. **Type of App** 选 *Web App* 或 *Automated App / Bot*  
+4. Callback URL 可填 `https://127.0.0.1/callback`（本工具只需读公开时间线，Bearer 模式可不启用 User authentication）
+
+### 4. 获取凭证（二选一）
+
+#### 方案 A：OAuth 2.0 Bearer Token（推荐，最简单）
+
+1. App → **Keys and tokens**  
+2. 在 **Authentication Tokens** 下点击 **Generate** / 复制 **Bearer Token**  
+3. 写入环境变量：
+
+```bash
+export X_BEARER_TOKEN="你的BearerToken"
+```
+
+或在项目根目录 `.env` 中配置（参考 `.env.example`）。
+
+#### 方案 B：OAuth 1.0a User Context
+
+1. **Keys and tokens** 中复制 **API Key**、**API Key Secret**  
+2. 生成 **Access Token** 与 **Access Token Secret**（需 Read 权限）  
+3. 写入环境变量：
+
+```bash
+export X_API_KEY="..."
+export X_API_SECRET="..."
+export X_ACCESS_TOKEN="..."
+export X_ACCESS_TOKEN_SECRET="..."
+```
+
+### 5. 本地验证
+
+```bash
+source .env   # 或 export 上述变量
+python main.py scan --accounts aleabitoreddit --no-eval
+```
+
+报告 JSON / 终端输出中应出现 `"streams_used": ["XApiV2"]` 与 `"x_auth_mode": "oauth2_bearer"`。
+
+### 6. GitHub Actions CI
+
+在仓库 **Settings → Secrets and variables → Actions** 中添加：
+
+| Secret 名称 | 说明 |
+|-------------|------|
+| `X_BEARER_TOKEN` | 方案 A 的 Bearer Token（推荐） |
+| 或 `X_API_KEY` / `X_API_SECRET` / `X_ACCESS_TOKEN` / `X_ACCESS_TOKEN_SECRET` | 方案 B 四件套 |
+
+CI workflow 已自动注入上述环境变量；**切勿**把 Token 写进代码或提交到 Git。
+
+### 7. 配额与套餐
+
+- X API 按 [官方定价](https://developer.x.com/en/docs/twitter-api/getting-started/about-twitter-api) 计费；Free 档读取配额有限，Basic 档更适合每日定时扫描  
+- 本工具默认 63 天窗口 + 分页，单次扫描某账号通常消耗 **数页到数十次** Read 请求  
+- 若返回 `401`/`403`，检查 Token 是否过期、App 是否为 Read 权限、套餐配额是否用尽
 
 ## 使用
 
@@ -81,7 +158,8 @@ python main.py scan --after 2025-01-01 --before 2025-06-01
 
 ```
 stock_detect/
-├── twitter_fetcher.py   # X 时间线（syndication 嵌入）
+├── x_api_client.py      # X 官方 API v2（OAuth Bearer / OAuth1）
+├── twitter_fetcher.py   # X 时间线（OAuth 优先，Guest 回退）
 ├── reddit_fetcher.py    # WSB 归档
 ├── signal_extractor.py  # 统一信号提取
 ├── analyzer.py          # X-first 分析流水线

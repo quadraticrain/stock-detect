@@ -5,6 +5,9 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .DS_Store
+.env
+.env.local
 site/
+site2/
 *.json
 !tests/fixtures/*.json
