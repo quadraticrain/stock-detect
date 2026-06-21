@@ -211,7 +211,7 @@ stock_detect/
 
 ## GitHub Pages 报告
 
-CI 每 **24 小时**（UTC 0:00）自动运行扫描，也可在 push 到 main 或手动触发；结果发布到 **`gh-pages` 分支**：
+CI 每天 **北京时间 09:00** 自动运行扫描；也可在 Actions 里 **手动触发**（`workflow_dispatch`）。结果发布到 **`gh-pages` 分支**：
 
 **https://quadraticrain.github.io/stock-detect/**
 

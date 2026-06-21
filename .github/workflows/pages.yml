@@ -2,14 +2,8 @@ name: Scan and publish GitHub Pages
 
 on:
   schedule:
-    - cron: "0 0 * * *"   # daily at 00:00 UTC
+    - cron: "0 1 * * *"   # daily 09:00 Beijing (UTC+8) = 01:00 UTC
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - "stock_detect/**"
-      - "scripts/build_pages.py"
-      - ".github/workflows/pages.yml"
 
 permissions:
   contents: write
