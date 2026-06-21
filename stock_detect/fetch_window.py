@@ -12,13 +12,19 @@ from stock_detect.config import FETCH_WINDOW_DAYS
 class FetchStats:
     pages_fetched: int = 0
     pages_skipped: int = 0
+    posts_raw: int = 0
     posts_fetched: int = 0
+    streams_used: list[str] = field(default_factory=list)
+    streams_unavailable: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
             "pages_fetched": self.pages_fetched,
             "pages_skipped": self.pages_skipped,
+            "posts_raw": self.posts_raw,
             "posts_fetched": self.posts_fetched,
+            "streams_used": self.streams_used,
+            "streams_unavailable": self.streams_unavailable,
         }
 
 
