@@ -14,18 +14,6 @@ _STATIC = Path(__file__).resolve().parent / "static"
 
 
 def report_to_dict(report: AnalysisReport, *, accounts: list[str]) -> dict:
-    def eval_block(data: dict | None) -> dict | None:
-        if not data:
-            return None
-        windows = {}
-        for key, stats in data.get("windows", {}).items():
-            windows[key] = {
-                "count": stats.get("count", 0),
-                "accuracy": stats.get("accuracy"),
-                "avg_return_pct": stats.get("avg_return_pct"),
-            }
-        return {"windows": windows, "ma_filter": data.get("ma_filter")}
-
     now = datetime.now(timezone.utc)
     source = report.source
     account_slug = "_".join(a.lower() for a in accounts) or "unknown"
@@ -59,9 +47,6 @@ def report_to_dict(report: AnalysisReport, *, accounts: list[str]) -> dict:
             {"date": d.isoformat(), "ticker": t}
             for d, t in report.buy_consensus_signals[:100]
         ],
-        "evaluation": eval_block(report.evaluation),
-        "evaluation_ma30": eval_block(report.evaluation_ma30),
-        "evaluation_ma90": eval_block(report.evaluation_ma90),
     }
     if report.fetch_window is not None:
         payload.update(report.fetch_window.to_dict())

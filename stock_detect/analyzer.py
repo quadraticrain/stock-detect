@@ -4,15 +4,11 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 
 from stock_detect.config import DEFAULT_X_ACCOUNTS, MAX_FETCH_POSTS
 from stock_detect.fetch_window import FetchStats, FetchWindow, default_fetch_window
-from stock_detect.market_data import (
-    evaluate_buy_signals,
-    fetch_sp500_tickers,
-    top_performers,
-)
+from stock_detect.market_data import fetch_sp500_tickers
 from stock_detect.models import SocialPost
 from stock_detect.reddit_fetcher import RedditFetcher, RedditPost
 from stock_detect.signal_extractor import (
@@ -49,9 +45,6 @@ class AnalysisReport:
     daily_consensus: list[DailyConsensus] = field(default_factory=list)
     ticker_summaries: list[TickerSummary] = field(default_factory=list)
     buy_consensus_signals: list[tuple[date, str]] = field(default_factory=list)
-    evaluation: dict | None = None
-    evaluation_ma30: dict | None = None
-    evaluation_ma90: dict | None = None
     accounts_scanned: list[str] = field(default_factory=list)
     fetch_window: FetchWindow | None = None
     fetch_stats: FetchStats | None = None
@@ -92,8 +85,6 @@ class SignalAnalyzer:
         limit: int = 500,
         sort: str = "new",
         use_proximity: bool = False,
-        evaluate: bool = True,
-        lookback_days: int = 120,
         posts: list[SocialPost] | None = None,
         after: datetime | None = None,
         before: datetime | None = None,
@@ -158,13 +149,7 @@ class SignalAnalyzer:
         daily = aggregate_daily_consensus(signals)
         summaries = self._summarize_tickers(signals, daily)
 
-        cutoff = datetime.now(timezone.utc) - timedelta(days=lookback_days)
-        buy_consensus = [
-            (c.date, c.ticker)
-            for c in daily
-            if c.signal == "buy"
-            and datetime.combine(c.date, datetime.min.time(), tzinfo=timezone.utc) >= cutoff
-        ]
+        buy_consensus = [(c.date, c.ticker) for c in daily if c.signal == "buy"]
 
         report = AnalysisReport(
             source=source,
@@ -178,11 +163,6 @@ class SignalAnalyzer:
             fetch_window=fetch_window,
             fetch_stats=fetch_stats,
         )
-
-        if evaluate and buy_consensus:
-            report.evaluation = evaluate_buy_signals(buy_consensus)
-            report.evaluation_ma30 = evaluate_buy_signals(buy_consensus, ma_filter=30)
-            report.evaluation_ma90 = evaluate_buy_signals(buy_consensus, ma_filter=90)
 
         return report
 
@@ -233,21 +213,6 @@ class SignalAnalyzer:
             return merged[:max_posts], stats
 
         raise ValueError(f"Unknown source: {source}")
-
-    def detection_rate(self, recommended_tickers: set[str], years: int = 4) -> dict:
-        end = date.today()
-        start = end - timedelta(days=365 * years)
-        performers = top_performers(self.sp500, start, end)
-        top = set(performers.loc[performers["top_performer"], "ticker"].tolist())
-        detected = recommended_tickers & top
-        return {
-            "top_performers": len(top),
-            "recommended_unique": len(recommended_tickers),
-            "detected_top": len(detected),
-            "detection_rate": len(detected) / len(top) if top else 0.0,
-            "detected_tickers": sorted(detected),
-            "missed_top_sample": sorted(top - detected)[:15],
-        }
 
     def _summarize_tickers(
         self,
