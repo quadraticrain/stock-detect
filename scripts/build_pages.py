@@ -20,7 +20,7 @@ def main() -> int:
     parser.add_argument("--merge-from", help="Existing gh-pages dir to preserve history")
     parser.add_argument("--source", choices=["x", "wsb", "both"], default="x")
     parser.add_argument("--accounts", default="aleabitoreddit")
-    parser.add_argument("--limit", type=int, default=300)
+    parser.add_argument("--limit", type=int, default=4000, help="Max posts to fetch/analyze")
     parser.add_argument("--no-eval", action="store_true")
     args = parser.parse_args()
 

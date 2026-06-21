@@ -6,6 +6,8 @@ from collections import Counter
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 
+from stock_detect.config import DEFAULT_X_ACCOUNTS, MAX_FETCH_POSTS
+from stock_detect.fetch_window import FetchStats, FetchWindow, default_fetch_window
 from stock_detect.market_data import (
     evaluate_buy_signals,
     fetch_sp500_tickers,
@@ -51,6 +53,8 @@ class AnalysisReport:
     evaluation_ma30: dict | None = None
     evaluation_ma90: dict | None = None
     accounts_scanned: list[str] = field(default_factory=list)
+    fetch_window: FetchWindow | None = None
+    fetch_stats: FetchStats | None = None
 
 
 def reddit_to_social(post: RedditPost) -> SocialPost:
@@ -78,8 +82,6 @@ class SignalAnalyzer:
     ):
         self.reddit = RedditFetcher(subreddit=subreddit)
         self.twitter = TwitterFetcher()
-        from stock_detect.config import DEFAULT_X_ACCOUNTS
-
         self.x_accounts = x_accounts or DEFAULT_X_ACCOUNTS
         self.sp500 = fetch_sp500_tickers()
 
@@ -98,9 +100,28 @@ class SignalAnalyzer:
         all_cashtags: bool = True,
         sp500_only: bool = False,
     ) -> AnalysisReport:
+        fetch_window = default_fetch_window(before=before)
+        if after is not None:
+            fetch_window = FetchWindow(
+                after=after if after.tzinfo else after.replace(tzinfo=timezone.utc),
+                before=fetch_window.before,
+                window_days=fetch_window.window_days,
+            )
+
+        fetch_stats: FetchStats | None = None
         if posts is None:
-            posts = self._fetch(source, limit=limit, sort=sort, after=after, before=before)
+            posts, fetch_stats = self._fetch(
+                source,
+                limit=limit,
+                sort=sort,
+                window=fetch_window,
+            )
         else:
+            posts = [
+                p
+                for p in posts
+                if fetch_window.contains(p.created)
+            ]
             limit = len(posts)
 
         valid = self.sp500 if sp500_only else None
@@ -154,6 +175,8 @@ class SignalAnalyzer:
             ticker_summaries=summaries,
             buy_consensus_signals=buy_consensus,
             accounts_scanned=accounts,
+            fetch_window=fetch_window,
+            fetch_stats=fetch_stats,
         )
 
         if evaluate and buy_consensus:
@@ -169,40 +192,46 @@ class SignalAnalyzer:
         *,
         limit: int,
         sort: str,
-        after: datetime | None,
-        before: datetime | None,
-    ) -> list[SocialPost]:
+        window: FetchWindow,
+    ) -> tuple[list[SocialPost], FetchStats]:
+        max_posts = min(limit or MAX_FETCH_POSTS, MAX_FETCH_POSTS)
+        stats = FetchStats()
+
         if source == "x":
-            per_account = max(20, limit // max(len(self.x_accounts or [1]), 1))
-            return self.twitter.fetch_accounts(
+            posts = self.twitter.fetch_accounts(
                 self.x_accounts,
-                limit_per_account=per_account,
-                after=after,
-                before=before,
-            )[:limit]
-        if source == "wsb":
-            reddit_posts = self.reddit.fetch_posts(
-                sort=sort, limit=limit, after=after, before=before
+                window=window,
+                max_posts=max_posts,
             )
-            return [reddit_to_social(p) for p in reddit_posts]
+            stats = self.twitter.last_stats
+            return posts[:max_posts], stats
+
+        if source == "wsb":
+            posts = self.reddit.fetch_posts(sort=sort, limit=max_posts)
+            stats = self.reddit.last_stats
+            return [reddit_to_social(p) for p in posts][:max_posts], stats
+
         if source == "both":
-            x_limit = limit // 2
-            wsb_limit = limit - x_limit
+            x_cap = max_posts // 2
+            wsb_cap = max_posts - x_cap
             x_posts = self.twitter.fetch_accounts(
                 self.x_accounts,
-                limit_per_account=max(20, x_limit // max(len(self.x_accounts or [1]), 1)),
-                after=after,
-                before=before,
-            )[:x_limit]
+                window=window,
+                max_posts=x_cap,
+            )
             wsb_posts = [
                 reddit_to_social(p)
-                for p in self.reddit.fetch_posts(
-                    sort=sort, limit=wsb_limit, after=after, before=before
-                )
+                for p in self.reddit.fetch_posts(sort=sort, limit=wsb_cap)
             ]
+            stats = FetchStats(
+                pages_fetched=self.twitter.last_stats.pages_fetched + self.reddit.last_stats.pages_fetched,
+                pages_skipped=self.twitter.last_stats.pages_skipped + self.reddit.last_stats.pages_skipped,
+                posts_fetched=len(x_posts) + len(wsb_posts),
+            )
             merged = x_posts + wsb_posts
             merged.sort(key=lambda p: p.created, reverse=True)
-            return merged[:limit]
+            return merged[:max_posts], stats
+
         raise ValueError(f"Unknown source: {source}")
 
     def detection_rate(self, recommended_tickers: set[str], years: int = 4) -> dict:

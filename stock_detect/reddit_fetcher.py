@@ -11,7 +11,14 @@ from typing import Iterator
 
 import requests
 
-from stock_detect.config import USER_AGENT
+from stock_detect.config import (
+    MAX_FETCH_PAGES,
+    MAX_FETCH_POSTS,
+    REDDIT_PAGE_SIZE,
+    REQUEST_DELAY_SEC,
+    USER_AGENT,
+)
+from stock_detect.fetch_window import FetchStats, FetchWindow, default_fetch_window
 
 
 @dataclass
@@ -34,29 +41,55 @@ class RedditFetcher:
         self.subreddit = subreddit
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": user_agent})
+        self.last_stats = FetchStats()
 
     def fetch_posts(
         self,
         *,
         sort: str = "new",
-        limit: int = 100,
+        limit: int | None = None,
         time_filter: str = "week",
         after: datetime | None = None,
         before: datetime | None = None,
+        max_pages: int = MAX_FETCH_PAGES,
+        max_posts: int | None = None,
     ) -> list[RedditPost]:
+        del time_filter  # fixed window replaces Reddit time_filter
+        window = default_fetch_window(before=before)
+        if after is not None:
+            window = FetchWindow(
+                after=after if after.tzinfo else after.replace(tzinfo=timezone.utc),
+                before=window.before,
+                window_days=window.window_days,
+            )
+
+        cap = min(limit or MAX_FETCH_POSTS, max_posts or MAX_FETCH_POSTS)
+        stats = FetchStats()
         posts = self._fetch_arctic_shift(
-            limit=limit, sort=sort, after=after, before=before
+            sort=sort,
+            after=window.after,
+            before=window.before,
+            max_pages=max_pages,
+            max_posts=cap,
+            stats=stats,
         )
-        if len(posts) < limit:
+        if len(posts) < cap:
             posts.extend(
                 self._fetch_pullpush(
-                    limit=limit - len(posts),
                     sort=sort,
-                    after=after,
-                    before=before,
+                    after=window.after,
+                    before=window.before,
+                    max_pages=max_pages,
+                    max_posts=cap - len(posts),
+                    stats=stats,
                 )
             )
-        return posts[:limit]
+
+        posts = [p for p in posts if window.contains(p.created)]
+        posts.sort(key=lambda p: p.created, reverse=True)
+        stats.posts_fetched = len(posts)
+        self.last_stats = stats
+        return posts[:cap]
 
     @classmethod
     def from_json_file(cls, path: str | Path) -> list[RedditPost]:
@@ -67,81 +100,115 @@ class RedditFetcher:
     def _fetch_arctic_shift(
         self,
         *,
-        limit: int,
         sort: str,
-        after: datetime | None = None,
-        before: datetime | None = None,
+        after: datetime,
+        before: datetime,
+        max_pages: int,
+        max_posts: int,
+        stats: FetchStats,
     ) -> list[RedditPost]:
         posts: list[RedditPost] = []
-        before_ts: int | None = int(before.timestamp()) if before else None
+        before_ts: int | None = int(before.timestamp())
         order = "desc" if sort in {"new", "hot"} else "asc"
 
-        while len(posts) < limit:
-            batch = min(100, limit - len(posts))
+        for _ in range(max_pages):
+            if len(posts) >= max_posts:
+                break
+
             params: dict = {
                 "subreddit": self.subreddit,
-                "limit": batch,
+                "limit": min(REDDIT_PAGE_SIZE, max_posts - len(posts)),
                 "sort": order,
+                "after": int(after.timestamp()),
             }
-            if after is not None:
-                params["after"] = int(after.timestamp())
             if before_ts is not None:
                 params["before"] = before_ts
 
-            resp = self.session.get(self.ARCTIC_SHIFT, params=params, timeout=45)
-            resp.raise_for_status()
-            payload = resp.json()
+            try:
+                resp = self.session.get(self.ARCTIC_SHIFT, params=params, timeout=45)
+                if resp.status_code != 200:
+                    stats.pages_skipped += 1
+                    break
+                payload = resp.json()
+            except (requests.RequestException, json.JSONDecodeError):
+                stats.pages_skipped += 1
+                break
+
+            stats.pages_fetched += 1
             data = payload.get("data", [])
             if not data:
                 break
 
+            oldest_on_page: datetime | None = None
             for item in data:
-                posts.append(_post_from_dict(item))
+                post = _post_from_dict(item)
+                posts.append(post)
+                oldest_on_page = post.created if oldest_on_page is None or post.created < oldest_on_page else oldest_on_page
+
+            if oldest_on_page and oldest_on_page < after:
+                break
 
             before_ts = min(int(item.get("created_utc", 0)) for item in data)
-            if len(data) < batch:
+            if len(data) < params["limit"]:
                 break
-            time.sleep(0.3)
+            time.sleep(REQUEST_DELAY_SEC)
 
         return posts
 
     def _fetch_pullpush(
         self,
         *,
-        limit: int,
         sort: str,
-        after: datetime | None = None,
-        before: datetime | None = None,
+        after: datetime,
+        before: datetime,
+        max_pages: int,
+        max_posts: int,
+        stats: FetchStats,
     ) -> list[RedditPost]:
         posts: list[RedditPost] = []
-        before_ts: int | None = int(before.timestamp()) if before else None
+        before_ts: int | None = int(before.timestamp())
 
-        while len(posts) < limit:
-            batch = min(100, limit - len(posts))
+        for _ in range(max_pages):
+            if len(posts) >= max_posts:
+                break
+
             params: dict = {
                 "subreddit": self.subreddit,
-                "size": batch,
+                "size": min(REDDIT_PAGE_SIZE, max_posts - len(posts)),
                 "sort": "desc" if sort in {"new", "hot"} else "asc",
                 "sort_type": "created_utc",
+                "after": int(after.timestamp()),
             }
-            if after is not None:
-                params["after"] = int(after.timestamp())
             if before_ts is not None:
                 params["before"] = before_ts
 
-            resp = self.session.get(self.PULLPUSH, params=params, timeout=45)
-            resp.raise_for_status()
-            data = resp.json().get("data", [])
+            try:
+                resp = self.session.get(self.PULLPUSH, params=params, timeout=45)
+                if resp.status_code != 200:
+                    stats.pages_skipped += 1
+                    break
+                data = resp.json().get("data", [])
+            except (requests.RequestException, json.JSONDecodeError):
+                stats.pages_skipped += 1
+                break
+
+            stats.pages_fetched += 1
             if not data:
                 break
 
+            oldest_on_page: datetime | None = None
             for item in data:
-                posts.append(_post_from_dict(item))
+                post = _post_from_dict(item)
+                posts.append(post)
+                oldest_on_page = post.created if oldest_on_page is None or post.created < oldest_on_page else oldest_on_page
+
+            if oldest_on_page and oldest_on_page < after:
+                break
 
             before_ts = min(int(item.get("created_utc", 0)) for item in data)
-            if len(data) < batch:
+            if len(data) < params["size"]:
                 break
-            time.sleep(0.3)
+            time.sleep(REQUEST_DELAY_SEC)
 
         return posts
 
