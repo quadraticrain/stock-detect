@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
@@ -52,12 +53,23 @@ def report_to_dict(report: AnalysisReport, *, accounts: list[str]) -> dict:
         payload.update(report.fetch_window.to_dict())
     if report.fetch_stats is not None:
         payload.update(report.fetch_stats.to_dict())
+
+    github_run_id = os.environ.get("GITHUB_RUN_ID", "").strip()
+    github_repo = os.environ.get("GITHUB_REPOSITORY", "").strip()
+    if github_run_id and github_repo:
+        payload["ci_run_url"] = f"https://github.com/{github_repo}/actions/runs/{github_run_id}"
+
+    api_new = payload.get("api_posts_new")
+    if api_new is not None:
+        payload["data_unchanged"] = api_new == 0
+
     return payload
 
 
 def run_entry(data: dict) -> dict:
     run_id = data["id"]
-    return {
+    api_new = data.get("api_posts_new")
+    entry = {
         "id": run_id,
         "generated_at": data["generated_at"],
         "source": data["source"],
@@ -68,6 +80,16 @@ def run_entry(data: dict) -> dict:
         "signal_count": data["signal_count"],
         "consensus_count": data["consensus_count"],
     }
+    if api_new is not None:
+        entry["api_posts_new"] = api_new
+        entry["data_unchanged"] = api_new == 0
+    if data.get("pages_fetched") is not None:
+        entry["pages_fetched"] = data["pages_fetched"]
+    if data.get("cache_posts") is not None:
+        entry["cache_posts"] = data["cache_posts"]
+    if data.get("ci_run_url"):
+        entry["ci_run_url"] = data["ci_run_url"]
+    return entry
 
 
 def load_manifest(path: Path) -> dict:

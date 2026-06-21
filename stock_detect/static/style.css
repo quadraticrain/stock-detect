@@ -48,6 +48,19 @@ tr:hover td { background: rgba(88,166,255,.06); }
 .tag.sell { background: rgba(248,81,73,.15); color: var(--sell); }
 .tag.neutral, .tag.hold { background: rgba(210,153,34,.15); color: var(--hold); }
 .tag.src { background: rgba(88,166,255,.12); color: var(--accent); }
+.tag.unchanged { background: rgba(139,148,158,.18); color: var(--muted); margin-left: 6px; }
+.tag.new-data { background: rgba(63,185,80,.15); color: var(--buy); margin-left: 6px; }
+.status-banner {
+  padding: 12px 14px; border-radius: 8px; margin-bottom: 16px; font-size: 0.9rem; font-weight: 500;
+}
+.status-banner.ok {
+  background: rgba(139,148,158,.12); border: 1px solid rgba(139,148,158,.35); color: var(--muted);
+}
+.status-banner.new {
+  background: rgba(63,185,80,.1); border: 1px solid rgba(63,185,80,.35); color: var(--buy);
+}
+.run-card.unchanged { border-style: dashed; }
+.run-card.unchanged.latest { border-color: rgba(139,148,158,.55); }
 .footer { color: var(--muted); font-size: 0.8rem; margin-top: 32px; }
 a { color: var(--accent); }
 .err { color: var(--sell); padding: 16px; background: var(--card); border-radius: 8px; }

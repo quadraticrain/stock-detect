@@ -1,6 +1,19 @@
-function tag(c) {
-  const cls = c === 'buy' ? 'buy' : c === 'sell' ? 'sell' : 'neutral';
-  return `<span class="tag ${cls}">${c}</span>`;
+function dataBadge(r) {
+  if (r.data_unchanged === true || r.api_posts_new === 0) {
+    return '<span class="tag unchanged">no new data</span>';
+  }
+  if (typeof r.api_posts_new === 'number' && r.api_posts_new > 0) {
+    return `<span class="tag new-data">+${r.api_posts_new} new</span>`;
+  }
+  return '';
+}
+
+function apiMeta(r) {
+  if (typeof r.api_posts_new !== 'number') return '';
+  if (r.api_posts_new === 0) {
+    return ' · cache only · 0 API posts';
+  }
+  return ` · +${r.api_posts_new} API posts`;
 }
 
 function srcTag(s) {
@@ -12,17 +25,38 @@ function fmtUtc(iso) {
   return new Date(iso).toLocaleString('en-GB', { timeZone: 'UTC' }) + ' UTC';
 }
 
+function tag(c) {
+  const cls = c === 'buy' ? 'buy' : c === 'sell' ? 'sell' : 'neutral';
+  return `<span class="tag ${cls}">${c}</span>`;
+}
+
 function renderReportBody(d) {
   const accounts = (d.accounts || []).map(a => '@' + a.replace(/^@/, '')).join(', ') || '—';
+  const apiNew = typeof d.api_posts_new === 'number' ? d.api_posts_new : null;
+  const pages = typeof d.pages_fetched === 'number' ? d.pages_fetched : null;
+  const cachePosts = typeof d.cache_posts === 'number' ? d.cache_posts : null;
+  const unchanged = d.data_unchanged === true || apiNew === 0;
+  const statusBanner = unchanged
+    ? `<div class="status-banner ok">CI OK · no new X posts (served from MySQL cache)</div>`
+    : (apiNew !== null && apiNew > 0
+      ? `<div class="status-banner new">CI OK · ${apiNew} new post(s) from X API</div>`
+      : '');
+  const ciLink = d.ci_run_url
+    ? `<p class="sub"><a href="${d.ci_run_url}" target="_blank" rel="noopener">View CI run →</a></p>`
+    : '';
   const stats = `
+    ${statusBanner}
     <div class="grid">
       <div class="stat"><div class="label">Generated (UTC)</div><div class="value" style="font-size:.95rem">${fmtUtc(d.generated_at)}</div></div>
       <div class="stat"><div class="label">Source</div><div class="value">${srcTag(d.source)}</div></div>
       <div class="stat"><div class="label">Posts</div><div class="value">${d.fetched_posts}</div></div>
       <div class="stat"><div class="label">Signals</div><div class="value">${d.signal_count}</div></div>
       <div class="stat"><div class="label">Consensus</div><div class="value">${d.consensus_count}</div></div>
+      ${apiNew !== null ? `<div class="stat"><div class="label">API new</div><div class="value">${apiNew}</div></div>` : ''}
+      ${pages !== null ? `<div class="stat"><div class="label">API pages</div><div class="value">${pages}</div></div>` : ''}
+      ${cachePosts !== null ? `<div class="stat"><div class="label">Cache</div><div class="value">${cachePosts}</div></div>` : ''}
     </div>
-    <p class="sub">Accounts: ${accounts} · Run ID: <code>${d.id || '—'}</code></p>`;
+    <p class="sub">Accounts: ${accounts} · Run ID: <code>${d.id || '—'}</code></p>${ciLink}`;
   let rows = '';
   for (const t of d.top_tickers || []) {
     rows += `<tr><td><strong>${t.ticker}</strong></td><td>${t.mentions}</td><td>${t.buy}</td><td>${t.x}</td><td>${t.wsb}</td><td>${t.authors || '—'}</td><td>${tag(t.consensus)}</td></tr>`;
@@ -62,7 +96,7 @@ function buildNavbar(manifest, cfg, filters) {
 
   let runOptions = '';
   for (const r of filtered) {
-    const label = `${fmtUtc(r.generated_at)} · ${r.source} · ${(r.accounts || []).map(a => '@' + a).join(',')} · ${r.signal_count} sig`;
+    const label = `${fmtUtc(r.generated_at)} · ${r.source} · ${(r.accounts || []).map(a => '@' + a).join(',')} · ${r.signal_count} sig${apiMeta(r)}`;
     const sel = r.id === cfg.runId ? ' selected' : '';
     runOptions += `<option value="${r.html}"${sel}>${label}</option>`;
   }
@@ -155,10 +189,11 @@ function renderIndex(manifest, cfg) {
   let cards = '';
   for (const r of runs) {
     const latest = r.id === manifest.latest ? ' latest' : '';
-    const badge = r.id === manifest.latest ? ' · latest' : '';
-    cards += `<a class="run-card${latest}" href="${r.html}${qs}">
-      <div class="title">${fmtUtc(r.generated_at)} ${srcTag(r.source)}${badge}</div>
-      <div class="meta">@${(r.accounts || []).join(', @')} · ${r.fetched_posts} posts · ${r.signal_count} signals · ${r.consensus_count} consensus</div>
+    const latestBadge = r.id === manifest.latest ? ' · latest' : '';
+    const badge = dataBadge(r);
+    cards += `<a class="run-card${latest}${r.data_unchanged ? ' unchanged' : ''}" href="${r.html}${qs}">
+      <div class="title">${fmtUtc(r.generated_at)} ${srcTag(r.source)}${latestBadge} ${badge}</div>
+      <div class="meta">@${(r.accounts || []).join(', @')} · ${r.fetched_posts} posts · ${r.signal_count} signals · ${r.consensus_count} consensus${apiMeta(r)}</div>
     </a>`;
   }
 
