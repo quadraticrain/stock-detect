@@ -1,5 +1,5 @@
 function dataBadge(r) {
-  if (r.data_unchanged === true || r.api_posts_new === 0) {
+  if (isUnchanged(r)) {
     return '<span class="tag unchanged">no new data</span>';
   }
   if (typeof r.api_posts_new === 'number' && r.api_posts_new > 0) {
@@ -8,12 +8,32 @@ function dataBadge(r) {
   return '';
 }
 
+function isUnchanged(r) {
+  return r.data_unchanged === true || r.api_posts_new === 0;
+}
+
 function apiMeta(r) {
   if (typeof r.api_posts_new !== 'number') return '';
   if (r.api_posts_new === 0) {
     return ' · cache only · 0 API posts';
   }
   return ` · +${r.api_posts_new} API posts`;
+}
+
+function runStatusLine(r) {
+  if (isUnchanged(r)) {
+    return '<div class="run-status unchanged">✓ CI OK · cache only · 0 new posts from X API</div>';
+  }
+  if (typeof r.api_posts_new === 'number' && r.api_posts_new > 0) {
+    return `<div class="run-status new">✓ CI OK · ${r.api_posts_new} new post(s) from X API</div>`;
+  }
+  return '';
+}
+
+function assetUrl(base, cfg) {
+  if (!base || !cfg.assetVersion) return base;
+  const sep = base.includes('?') ? '&' : '?';
+  return `${base}${sep}v=${encodeURIComponent(cfg.assetVersion)}`;
 }
 
 function srcTag(s) {
@@ -35,7 +55,7 @@ function renderReportBody(d) {
   const apiNew = typeof d.api_posts_new === 'number' ? d.api_posts_new : null;
   const pages = typeof d.pages_fetched === 'number' ? d.pages_fetched : null;
   const cachePosts = typeof d.cache_posts === 'number' ? d.cache_posts : null;
-  const unchanged = d.data_unchanged === true || apiNew === 0;
+  const unchanged = isUnchanged(d);
   const statusBanner = unchanged
     ? `<div class="status-banner ok">CI OK · no new X posts (served from MySQL cache)</div>`
     : (apiNew !== null && apiNew > 0
@@ -191,8 +211,9 @@ function renderIndex(manifest, cfg) {
     const latest = r.id === manifest.latest ? ' latest' : '';
     const latestBadge = r.id === manifest.latest ? ' · latest' : '';
     const badge = dataBadge(r);
-    cards += `<a class="run-card${latest}${r.data_unchanged ? ' unchanged' : ''}" href="${r.html}${qs}">
+    cards += `<a class="run-card${latest}${isUnchanged(r) ? ' unchanged' : ''}" href="${r.html}${qs}">
       <div class="title">${fmtUtc(r.generated_at)} ${srcTag(r.source)}${latestBadge} ${badge}</div>
+      ${runStatusLine(r)}
       <div class="meta">@${(r.accounts || []).join(', @')} · ${r.fetched_posts} posts · ${r.signal_count} signals · ${r.consensus_count} consensus${apiMeta(r)}</div>
     </a>`;
   }
@@ -206,7 +227,7 @@ function renderIndex(manifest, cfg) {
 async function init() {
   const cfg = window.STOCK_DETECT;
   try {
-    const manifest = await fetch(cfg.manifestUrl).then(r => {
+    const manifest = await fetch(assetUrl(cfg.manifestUrl, cfg), { cache: 'no-store' }).then(r => {
       if (!r.ok) throw new Error('manifest not found');
       return r.json();
     });
@@ -217,7 +238,7 @@ async function init() {
     }
 
     wireNavbar(manifest, cfg);
-    const data = await fetch(cfg.dataUrl).then(r => {
+    const data = await fetch(assetUrl(cfg.dataUrl, cfg), { cache: 'no-store' }).then(r => {
       if (!r.ok) throw new Error('report data not found');
       return r.json();
     });

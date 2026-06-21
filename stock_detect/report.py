@@ -110,6 +110,31 @@ def merge_manifest(manifest: dict, entry: dict) -> dict:
     return {"runs": runs, "latest": runs[0]["id"] if runs else None}
 
 
+def enrich_run_entry(entry: dict, report_data: dict) -> dict:
+    """Backfill manifest metadata from stored report JSON."""
+    enriched = dict(entry)
+    for key in ("api_posts_new", "pages_fetched", "cache_posts", "ci_run_url", "data_unchanged"):
+        if report_data.get(key) is not None:
+            enriched[key] = report_data[key]
+    api_new = enriched.get("api_posts_new")
+    if api_new is not None:
+        enriched["data_unchanged"] = api_new == 0
+    return enriched
+
+
+def enrich_manifest_from_reports(manifest: dict, reports_dir: Path) -> dict:
+    runs: list[dict] = []
+    for entry in manifest.get("runs", []):
+        json_name = entry.get("json") or f"reports/{entry['id']}.json"
+        json_path = reports_dir / Path(json_name).name
+        if json_path.is_file():
+            report_data = json.loads(json_path.read_text(encoding="utf-8"))
+            runs.append(enrich_run_entry(entry, report_data))
+        else:
+            runs.append(entry)
+    return {"runs": runs, "latest": manifest.get("latest")}
+
+
 def refresh_site(output_dir: str | Path, merge_from: str | Path) -> Path:
     """Republish existing gh-pages content with updated assets/nav (no new scan)."""
     out = Path(output_dir)
@@ -128,14 +153,20 @@ def refresh_site(output_dir: str | Path, merge_from: str | Path) -> Path:
         reports_dir = out / "reports"
         reports_dir.mkdir(exist_ok=True)
         shutil.copy2(out / "report.json", reports_dir / f"{run_id}.json")
-        (reports_dir / f"{run_id}.html").write_text(_report_html(run_id, f"{run_id}.json"), encoding="utf-8")
+        (reports_dir / f"{run_id}.html").write_text(
+            _report_html(run_id, f"{run_id}.json", run_id),
+            encoding="utf-8",
+        )
         save_manifest(manifest_path, {"runs": [entry], "latest": run_id})
 
     assets_dir = out / "assets"
     assets_dir.mkdir(parents=True, exist_ok=True)
     _write_assets(assets_dir)
-    (out / "index.html").write_text(_index_html(), encoding="utf-8")
-    manifest = load_manifest(manifest_path)
+    manifest = enrich_manifest_from_reports(load_manifest(manifest_path), out / "reports")
+    save_manifest(manifest_path, manifest)
+    asset_version = manifest.get("latest") or "static"
+    (out / "index.html").write_text(_index_html(asset_version), encoding="utf-8")
+    _rewrite_report_shells(out / "reports", manifest, asset_version)
     latest = manifest.get("latest")
     if latest:
         redirect = f"""<!DOCTYPE html>
@@ -182,12 +213,14 @@ def write_site(
     run_id = data["id"]
 
     (reports_dir / f"{run_id}.json").write_text(json.dumps(data, indent=2), encoding="utf-8")
-    (reports_dir / f"{run_id}.html").write_text(_report_html(run_id, f"{run_id}.json"), encoding="utf-8")
 
     manifest = merge_manifest(load_manifest(out / "manifest.json"), entry)
+    manifest = enrich_manifest_from_reports(manifest, reports_dir)
     save_manifest(out / "manifest.json", manifest)
 
-    (out / "index.html").write_text(_index_html(), encoding="utf-8")
+    asset_version = run_id
+    (out / "index.html").write_text(_index_html(asset_version), encoding="utf-8")
+    _rewrite_report_shells(reports_dir, manifest, asset_version)
     latest = manifest.get("latest")
     if latest:
         redirect = f"""<!DOCTYPE html>
@@ -209,14 +242,33 @@ def _write_assets(assets_dir: Path) -> None:
     shutil.copy2(_STATIC / "app.js", assets_dir / "app.js")
 
 
-def _report_html(run_id: str, json_name: str) -> str:
+def _rewrite_report_shells(reports_dir: Path, manifest: dict, asset_version: str) -> None:
+    for entry in manifest.get("runs", []):
+        json_name = Path(entry.get("json") or f"reports/{entry['id']}.json").name
+        html_path = reports_dir / f"{entry['id']}.html"
+        html_path.write_text(
+            _report_html(entry["id"], json_name, asset_version),
+            encoding="utf-8",
+        )
+
+
+def _cache_meta() -> str:
+    return '  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate"/>\n'
+
+
+def _asset_query(asset_version: str) -> str:
+    return f"?v={asset_version}"
+
+
+def _report_html(run_id: str, json_name: str, asset_version: str) -> str:
+    v = _asset_query(asset_version)
     return f"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>Stock Detect — {run_id}</title>
-  <link rel="stylesheet" href="../assets/style.css"/>
+{_cache_meta()}  <title>Stock Detect — {run_id}</title>
+  <link rel="stylesheet" href="../assets/style.css{v}"/>
 </head>
 <body>
   <div id="navbar"></div>
@@ -233,23 +285,25 @@ def _report_html(run_id: str, json_name: str) -> str:
       runId: {json.dumps(run_id)},
       dataUrl: {json.dumps(json_name)},
       manifestUrl: "../manifest.json",
-      homeUrl: "../index.html"
+      homeUrl: "../index.html",
+      assetVersion: {json.dumps(asset_version)}
     }};
   </script>
-  <script src="../assets/app.js"></script>
+  <script src="../assets/app.js{v}"></script>
 </body>
 </html>
 """
 
 
-def _index_html() -> str:
-    return """<!DOCTYPE html>
+def _index_html(asset_version: str) -> str:
+    v = _asset_query(asset_version)
+    return f"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>Stock Detect — Reports</title>
-  <link rel="stylesheet" href="assets/style.css"/>
+{_cache_meta()}  <title>Stock Detect — Reports</title>
+  <link rel="stylesheet" href="assets/style.css{v}"/>
 </head>
 <body>
   <div id="navbar"></div>
@@ -263,13 +317,14 @@ def _index_html() -> str:
     </p>
   </div>
   <script>
-    window.STOCK_DETECT = {
+    window.STOCK_DETECT = {{
       mode: "index",
       manifestUrl: "manifest.json",
-      homeUrl: "index.html"
-    };
+      homeUrl: "index.html",
+      assetVersion: {json.dumps(asset_version)}
+    }};
   </script>
-  <script src="assets/app.js"></script>
+  <script src="assets/app.js{v}"></script>
 </body>
 </html>
 """
