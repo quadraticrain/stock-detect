@@ -26,7 +26,12 @@ _SYNDICATION = "https://syndication.twitter.com/srv/timeline-profile/screen-name
 _FXTWITTER_USER = "https://api.fxtwitter.com/{screen_name}"
 _MAIN_JS = "https://abs.twimg.com/responsive-web/client-web/main.08b2ceaa.js"
 _GUEST_ACTIVATE = "https://api.x.com/1.1/guest/activate.json"
-_GRAPHQL = "https://x.com/i/api/graphql/{query_id}/UserTweets"
+_GRAPHQL = "https://x.com/i/api/graphql/{query_id}/{operation}"
+_GRAPHQL_STREAMS = (
+    "UserTweets",
+    "UserHighlightsTweets",
+    "UserTweetsAndReplies",
+)
 _BEARER = (
     "Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D"
     "1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA"
@@ -46,7 +51,7 @@ class TwitterFetcher:
             }
         )
         self.last_stats = FetchStats()
-        self._graphql_meta: tuple[str, dict, dict] | None = None
+        self._graphql_ops: dict[str, tuple[str, dict, dict]] | None = None
         self._guest_token: str | None = None
 
     def fetch_accounts(
@@ -88,7 +93,9 @@ class TwitterFetcher:
                 posts_by_id.setdefault(post.id, post)
             time.sleep(REQUEST_DELAY_SEC)
 
-        posts = filter_to_window(list(posts_by_id.values()), window, created_at=lambda p: p.created)
+        raw_posts = list(posts_by_id.values())
+        stats.posts_raw = len(raw_posts)
+        posts = filter_to_window(raw_posts, window, created_at=lambda p: p.created)
         posts.sort(key=lambda p: p.created, reverse=True)
         stats.posts_fetched = len(posts)
         self.last_stats = stats
@@ -128,14 +135,22 @@ class TwitterFetcher:
         posts_by_id: dict[str, SocialPost] = {}
         user_id = self._resolve_user_id(screen_name)
         if user_id:
-            for post in self._fetch_graphql_pages(
-                user_id,
-                window=window,
-                max_pages=max_pages,
-                max_posts=max_posts,
-                stats=stats,
-            ):
-                posts_by_id.setdefault(post.id, post)
+            pages_per_stream = max(3, max_pages // len(_GRAPHQL_STREAMS))
+            for operation in _GRAPHQL_STREAMS:
+                if len(posts_by_id) >= max_posts:
+                    break
+                batch = self._fetch_graphql_stream(
+                    user_id,
+                    operation=operation,
+                    window=window,
+                    max_pages=pages_per_stream,
+                    max_posts=max_posts - len(posts_by_id),
+                    stats=stats,
+                )
+                if batch:
+                    stats.streams_used.append(operation)
+                for post in batch:
+                    posts_by_id.setdefault(post.id, post)
 
         if len(posts_by_id) < max_posts:
             for post in self._fetch_syndication_page(screen_name, stats=stats):
@@ -171,15 +186,16 @@ class TwitterFetcher:
             "x-twitter-client-language": "en",
         }
 
-    def _load_graphql_meta(self) -> tuple[str, dict, dict] | None:
-        if self._graphql_meta is not None:
-            return self._graphql_meta
+    def _load_graphql_ops(self) -> dict[str, tuple[str, dict, dict]]:
+        if self._graphql_ops is not None:
+            return self._graphql_ops
+
+        ops: dict[str, tuple[str, dict, dict]] = {}
         try:
             resp = self.session.get(_MAIN_JS, timeout=45)
             if resp.status_code != 200:
-                js_url = _MAIN_JS
                 index = self.session.get(
-                    "https://x.com/aleabitoreddit",
+                    "https://x.com",
                     headers={"User-Agent": self.session.headers["User-Agent"]},
                     timeout=30,
                 )
@@ -188,45 +204,53 @@ class TwitterFetcher:
                     js_url = f"https://abs.twimg.com/responsive-web/client-web/main.{match.group(1)}.js"
                     resp = self.session.get(js_url, timeout=45)
             if resp.status_code != 200:
-                return None
-            js = resp.text
-            query_match = re.search(
-                r'queryId:"([^"]+)",operationName:"UserTweets"',
-                js,
-            )
-            meta_match = re.search(
-                r'operationName:"UserTweets",operationType:"query",metadata:\{'
-                r'featureSwitches:\[(.*?)\],fieldToggles:\[(.*?)\]',
-                js,
-            )
-            if not query_match or not meta_match:
-                return None
-            switches = re.findall(r'"([^"]+)"', meta_match.group(1))
-            toggles = re.findall(r'"([^"]+)"', meta_match.group(2))
-            features = {name: ("enabled" in name) for name in switches}
-            field_toggles = {name: False for name in toggles}
-            self._graphql_meta = (query_match.group(1), features, field_toggles)
-            return self._graphql_meta
-        except (requests.RequestException, json.JSONDecodeError, KeyError):
-            return None
+                self._graphql_ops = ops
+                return ops
 
-    def _fetch_graphql_pages(
+            js = resp.text
+            for operation in _GRAPHQL_STREAMS:
+                query_match = re.search(
+                    rf'queryId:"([^"]+)",operationName:"{operation}"',
+                    js,
+                )
+                meta_match = re.search(
+                    rf'operationName:"{operation}",operationType:"query",metadata:\{{'
+                    rf'featureSwitches:\[(.*?)\],fieldToggles:\[(.*?)\]',
+                    js,
+                )
+                if not query_match or not meta_match:
+                    continue
+                switches = re.findall(r'"([^"]+)"', meta_match.group(1))
+                toggles = re.findall(r'"([^"]+)"', meta_match.group(2))
+                features = {name: ("enabled" in name) for name in switches}
+                field_toggles = {name: False for name in toggles}
+                ops[operation] = (query_match.group(1), features, field_toggles)
+        except (requests.RequestException, json.JSONDecodeError, KeyError):
+            pass
+
+        self._graphql_ops = ops
+        return ops
+
+    def _fetch_graphql_stream(
         self,
         user_id: str,
         *,
+        operation: str,
         window: FetchWindow,
         max_pages: int,
         max_posts: int,
         stats: FetchStats,
     ) -> list[SocialPost]:
-        meta = self._load_graphql_meta()
+        ops = self._load_graphql_ops()
+        meta = ops.get(operation)
         if not meta:
-            stats.pages_skipped += 1
+            stats.streams_unavailable.append(operation)
             return []
 
         query_id, features, field_toggles = meta
         posts: list[SocialPost] = []
         cursor: str | None = None
+        stream_available = False
 
         for _ in range(max_pages):
             if len(posts) >= max_posts:
@@ -249,11 +273,14 @@ class TwitterFetcher:
             }
             try:
                 resp = self.session.get(
-                    _GRAPHQL.format(query_id=query_id),
+                    _GRAPHQL.format(query_id=query_id, operation=operation),
                     params=params,
                     headers=self._guest_headers(),
                     timeout=45,
                 )
+                if resp.status_code == 404:
+                    stats.streams_unavailable.append(operation)
+                    return posts
                 if resp.status_code != 200:
                     stats.pages_skipped += 1
                     break
@@ -262,11 +289,14 @@ class TwitterFetcher:
                 stats.pages_skipped += 1
                 break
 
+            stream_available = True
             stats.pages_fetched += 1
             page_posts, next_cursor, oldest = self._parse_graphql_timeline(payload)
+            known_ids = {post.id for post in posts}
             for post in page_posts:
-                if post.id not in {p.id for p in posts}:
+                if post.id not in known_ids:
                     posts.append(post)
+                    known_ids.add(post.id)
 
             if oldest and oldest < window.after:
                 break
@@ -276,6 +306,8 @@ class TwitterFetcher:
             cursor = next_cursor
             time.sleep(REQUEST_DELAY_SEC)
 
+        if not stream_available and operation not in stats.streams_unavailable:
+            stats.streams_unavailable.append(operation)
         return posts[:max_posts]
 
     def _parse_graphql_timeline(
