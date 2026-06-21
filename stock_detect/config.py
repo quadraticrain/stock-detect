@@ -48,8 +48,6 @@ SINGLE_CHAR_TICKERS = {"F", "T", "C", "X", "V", "Z", "W", "U", "S", "O", "L", "K
 
 PROXIMITY_CHARS = 20
 CONSENSUS_THRESHOLD = 1.5  # buy count must be 50% higher than sell count
-MA_WINDOWS = (7, 30, 90)
-EVAL_WINDOWS = {"1w": 7, "1m": 30, "3m": 90}
 
 USER_AGENT = "stock-detect/0.2 (research tool; X + WSB signals)"
 

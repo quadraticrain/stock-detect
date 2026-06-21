@@ -12,17 +12,6 @@ function fmtUtc(iso) {
   return new Date(iso).toLocaleString('en-GB', { timeZone: 'UTC' }) + ' UTC';
 }
 
-function evalTable(block) {
-  if (!block || !block.windows) return '<p class="sub">No data</p>';
-  let rows = '';
-  for (const [w, s] of Object.entries(block.windows)) {
-    const acc = s.accuracy != null ? (s.accuracy * 100).toFixed(1) + '%' : 'n/a';
-    const ret = s.avg_return_pct != null ? s.avg_return_pct.toFixed(2) + '%' : 'n/a';
-    rows += `<tr><td>${w}</td><td>${s.count}</td><td>${acc}</td><td>${ret}</td></tr>`;
-  }
-  return `<table><thead><tr><th>Window</th><th>Signals</th><th>Accuracy</th><th>Avg Return</th></tr></thead><tbody>${rows}</tbody></table>`;
-}
-
 function renderReportBody(d) {
   const accounts = (d.accounts || []).map(a => '@' + a.replace(/^@/, '')).join(', ') || '—';
   const stats = `
@@ -38,18 +27,11 @@ function renderReportBody(d) {
   for (const t of d.top_tickers || []) {
     rows += `<tr><td><strong>${t.ticker}</strong></td><td>${t.mentions}</td><td>${t.buy}</td><td>${t.x}</td><td>${t.wsb}</td><td>${t.authors || '—'}</td><td>${tag(t.consensus)}</td></tr>`;
   }
-  const evals = `
-    <div class="eval-grid">
-      <div class="eval-card"><h3>Baseline</h3>${evalTable(d.evaluation)}</div>
-      <div class="eval-card"><h3>MA30 filter</h3>${evalTable(d.evaluation_ma30)}</div>
-      <div class="eval-card"><h3>MA90 filter</h3>${evalTable(d.evaluation_ma90)}</div>
-    </div>`;
   return stats + `
     <section><h2>Top Tickers</h2>
       <table><thead><tr><th>Ticker</th><th>Posts</th><th>Buy</th><th>X</th><th>WSB</th><th>Authors</th><th>Consensus</th></tr></thead>
       <tbody>${rows || '<tr><td colspan="7">No tickers</td></tr>'}</tbody></table>
-    </section>
-    <section><h2>Backtest (Yahoo Finance)</h2>${evals}</section>`;
+    </section>`;
 }
 
 function unique(values) {

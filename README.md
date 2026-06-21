@@ -133,14 +133,14 @@ export X_ACCESS_TOKEN_SECRET="..."
 
 ```bash
 source .env   # 或 export 上述变量
-python main.py scan --accounts aleabitoreddit --no-eval
+python main.py scan --accounts aleabitoreddit
 ```
 
 报告 JSON / 终端输出中应出现 `"streams_used": ["XApiV2"]` 与 `"x_auth_mode": "oauth2_bearer"`。
 
 ### 6. GitHub Actions CI
 
-CI 只需配置 **`MYSQL_PASSWORD`**（见上文 MySQL 缓存）。X API 凭证默认从 `stock_detect/config.py` 读取；若需轮换密钥，可改代码或通过仓库 Secrets 注入环境变量覆盖。
+CI 只需配置 **`MYSQL_PASSWORD`** 与 **`X_BEARER_TOKEN`**（见上文）。定时任务只做 **X 抓取 + 信号扫描**，不含 Yahoo 回测。
 
 ### 7. 配额与套餐
 
@@ -174,10 +174,10 @@ python main.py scan --source both --limit 400
 python main.py scan --source wsb --limit 300
 ```
 
-限制为 S&P 500 + 回测高表现股检测：
+限制为 S&P 500 ticker：
 
 ```bash
-python main.py scan --sp500-only --detection
+python main.py scan --sp500-only
 ```
 
 历史区间：
@@ -194,7 +194,6 @@ python main.py scan --after 2025-01-01 --before 2025-06-01
 | Ticker | `$CASHTAG` + entities.symbols | S&P 500 + `$` 前缀规则 |
 | 信号 | buy/call vs sell/put 关键词 | 同左 |
 | 共识 | 日度 buy ≥ sell × 1.5 | 同左 |
-| 增强 | MA30/MA90 过滤回测 | 同左 |
 
 ## 项目结构
 
@@ -206,7 +205,7 @@ stock_detect/
 ├── reddit_fetcher.py    # WSB 归档
 ├── signal_extractor.py  # 统一信号提取
 ├── analyzer.py          # X-first 分析流水线
-├── market_data.py       # Yahoo Finance 回测
+├── market_data.py       # S&P 500 ticker 列表（--sp500-only）
 └── cli.py
 ```
 
@@ -231,9 +230,9 @@ python scripts/build_pages.py --output site
 
 | 模式 | 典型耗时 |
 |------|----------|
-| X 默认扫描 + 回测 | **~6 秒** |
+| X 默认扫描 | **~1 分钟**（含 MySQL + 官方 API） |
 | X + WSB 合并 | ~30–60 秒 |
-| `--sp500-only --detection` | ~2–5 分钟 |
+| `--sp500-only` | ~1 分钟 |
 
 单次完整运行远低于 30 分钟，适合 GitHub Actions 定时触发（workflow 已配置 `timeout-minutes: 30`）。
 
