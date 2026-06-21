@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from stock_detect.analyzer import SignalAnalyzer  # noqa: E402
-from stock_detect.report import write_site  # noqa: E402
+from stock_detect.report import refresh_site, write_site  # noqa: E402
 
 
 def main() -> int:
@@ -25,20 +25,30 @@ def main() -> int:
     args = parser.parse_args()
 
     accounts = [a.strip().lstrip("@") for a in args.accounts.split(",") if a.strip()]
-    analyzer = SignalAnalyzer(x_accounts=accounts)
-    report = analyzer.analyze(
-        source=args.source,
-        limit=args.limit,
-        evaluate=not args.no_eval,
-    )
-    out = write_site(
-        args.output,
-        report,
-        accounts=accounts,
-        merge_from=args.merge_from,
-    )
-    print(f"Wrote {out.resolve()}")
-    return 0
+    merge_path = Path(args.merge_from) if args.merge_from else None
+
+    try:
+        analyzer = SignalAnalyzer(x_accounts=accounts)
+        report = analyzer.analyze(
+            source=args.source,
+            limit=args.limit,
+            evaluate=not args.no_eval,
+        )
+        out = write_site(
+            args.output,
+            report,
+            accounts=accounts,
+            merge_from=args.merge_from,
+        )
+        print(f"Wrote {out.resolve()}")
+        return 0
+    except Exception as exc:
+        if merge_path and merge_path.exists():
+            print(f"Scan failed ({exc}); republishing existing gh-pages content.")
+            out = refresh_site(args.output, merge_path)
+            print(f"Refreshed site at {out.resolve()}")
+            return 0
+        raise
 
 
 if __name__ == "__main__":

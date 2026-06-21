@@ -98,6 +98,46 @@ def merge_manifest(manifest: dict, entry: dict) -> dict:
     return {"runs": runs, "latest": runs[0]["id"] if runs else None}
 
 
+def refresh_site(output_dir: str | Path, merge_from: str | Path) -> Path:
+    """Republish existing gh-pages content with updated assets/nav (no new scan)."""
+    out = Path(output_dir)
+    src = Path(merge_from)
+    if out.exists():
+        shutil.rmtree(out)
+    shutil.copytree(src, out)
+
+    manifest_path = out / "manifest.json"
+    if not manifest_path.exists() and (out / "report.json").exists():
+        legacy = json.loads((out / "report.json").read_text(encoding="utf-8"))
+        if "id" not in legacy:
+            legacy["id"] = "legacy_" + legacy.get("generated_at", "unknown").replace(":", "").replace("+00:00", "Z")[:15]
+        entry = run_entry(legacy)
+        run_id = legacy["id"]
+        reports_dir = out / "reports"
+        reports_dir.mkdir(exist_ok=True)
+        shutil.copy2(out / "report.json", reports_dir / f"{run_id}.json")
+        (reports_dir / f"{run_id}.html").write_text(_report_html(run_id, f"{run_id}.json"), encoding="utf-8")
+        save_manifest(manifest_path, {"runs": [entry], "latest": run_id})
+
+    assets_dir = out / "assets"
+    assets_dir.mkdir(parents=True, exist_ok=True)
+    _write_assets(assets_dir)
+    (out / "index.html").write_text(_index_html(), encoding="utf-8")
+    manifest = load_manifest(manifest_path)
+    latest = manifest.get("latest")
+    if latest:
+        redirect = f"""<!DOCTYPE html>
+<html lang="zh-CN"><head>
+  <meta charset="utf-8"/>
+  <meta http-equiv="refresh" content="0; url=reports/{latest}.html"/>
+  <script>location.replace('reports/{latest}.html');</script>
+  <title>Redirecting…</title>
+</head><body><p><a href="reports/{latest}.html">Latest report</a></p></body></html>"""
+        (out / "latest.html").write_text(redirect, encoding="utf-8")
+    (out / ".nojekyll").write_text("", encoding="utf-8")
+    return out
+
+
 def write_site(
     output_dir: str | Path,
     report: AnalysisReport,
