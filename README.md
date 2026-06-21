@@ -28,8 +28,44 @@ git clone https://github.com/quadraticrain/stock-detect.git
 cd stock-detect
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env   # 填入 X API 凭证（见下文）
+cp .env.example .env   # 填入 MYSQL_PASSWORD（见下文 MySQL 缓存）
 ```
+
+## MySQL 博文缓存（推荐）
+
+为降低 X API 重复拉取成本，工具将已抓取的推文写入 **阿里云 RDS MySQL**（`cache_data` 库）。同一 `post_id` 只存一条（`INSERT IGNORE`），后续扫描优先读库，并对 X API 使用 **`since_id` 增量拉取**（只请求新推文）。
+
+| 配置项 | 位置 |
+|--------|------|
+| Host / Port / Database / User | `stock_detect/config.py`（已内置） |
+| **密码** | 环境变量 `MYSQL_PASSWORD`（**唯一 GitHub Secret**） |
+
+### 表结构
+
+- `stock_detect_x_posts` — 推文正文、时间、tickers、URL 等（主键 `post_id`）
+- `stock_detect_x_fetch_state` — 每账号 `user_id`、`last_tweet_id`、上次抓取时间
+
+首次启动会自动同步表结构（建表、补列、补索引），无需手动维护 DDL。表定义在 `stock_detect/tweet_cache.py` 的 `_TABLES` 中维护。
+
+### 本地配置
+
+```bash
+# .env
+MYSQL_PASSWORD=你的数据库密码
+```
+
+### GitHub Actions
+
+在 **Settings → Secrets → Actions** 添加：
+
+| Secret | 说明 |
+|--------|------|
+| `MYSQL_PASSWORD` | MySQL 写账号密码 |
+| `X_BEARER_TOKEN` | X 官方 API Bearer Token（读推文必需，**勿写入代码**） |
+
+报告 JSON 的 `fetch_stats` 会包含 `cache_posts`（窗口内缓存条数）与 `api_posts_new`（本次新写入条数）。`streams_used` 含 `MySQLCache`。
+
+未配置 `MYSQL_PASSWORD` 时，行为与旧版相同（直接调 X API / Guest，无持久化）。
 
 ## X 官方 API 开通与配置（推荐）
 
@@ -55,19 +91,32 @@ cp .env.example .env   # 填入 X API 凭证（见下文）
 
 ### 4. 获取凭证（二选一）
 
-#### 方案 A：OAuth 2.0 Bearer Token（推荐，最简单）
+#### 方案 A：Bearer Token（最推荐，v2 读推文用这个）
 
-1. App → **Keys and tokens**  
-2. 在 **Authentication Tokens** 下点击 **Generate** / 复制 **Bearer Token**  
-3. 写入环境变量：
+1. Development App → **Keys and tokens**  
+2. 在 **Authentication Tokens** 区域点击 **Generate**，复制 **Bearer Token**  
+3. 写入 `.env`（可选，覆盖 `config.py` 默认值）：
 
 ```bash
-export X_BEARER_TOKEN="你的BearerToken"
+X_BEARER_TOKEN=你的BearerToken
 ```
 
-或在项目根目录 `.env` 中配置（参考 `.env.example`）。
+`X_CLIENT_ID` / `X_CLIENT_SECRET` 已写在 `stock_detect/config.py`；本地或 CI 可通过环境变量覆盖。
 
-#### 方案 B：OAuth 1.0a User Context
+#### 方案 B：OAuth 2.0 Client ID + Secret（已支持自动换 Token）
+
+1. 同一页面的 **OAuth 2.0 Client ID** 和 **Client Secret**  
+2. 写入 `.env`（可选，默认已在 `config.py`）：
+
+```bash
+X_CLIENT_ID=你的ClientID
+X_CLIENT_SECRET=你的ClientSecret
+```
+
+程序会自动向 `oauth2/token` 换取 Access Token。  
+**注意**：目前 Client ID/Secret 换到的 Token 对部分 v2 读接口可能返回 403；若遇到此情况，请同时使用方案 A 的 **Bearer Token**（`X_BEARER_TOKEN` 优先级更高）。
+
+#### 方案 C：OAuth 1.0a User Context
 
 1. **Keys and tokens** 中复制 **API Key**、**API Key Secret**  
 2. 生成 **Access Token** 与 **Access Token Secret**（需 Read 权限）  
@@ -91,19 +140,12 @@ python main.py scan --accounts aleabitoreddit --no-eval
 
 ### 6. GitHub Actions CI
 
-在仓库 **Settings → Secrets and variables → Actions** 中添加：
-
-| Secret 名称 | 说明 |
-|-------------|------|
-| `X_BEARER_TOKEN` | 方案 A 的 Bearer Token（推荐） |
-| 或 `X_API_KEY` / `X_API_SECRET` / `X_ACCESS_TOKEN` / `X_ACCESS_TOKEN_SECRET` | 方案 B 四件套 |
-
-CI workflow 已自动注入上述环境变量；**切勿**把 Token 写进代码或提交到 Git。
+CI 只需配置 **`MYSQL_PASSWORD`**（见上文 MySQL 缓存）。X API 凭证默认从 `stock_detect/config.py` 读取；若需轮换密钥，可改代码或通过仓库 Secrets 注入环境变量覆盖。
 
 ### 7. 配额与套餐
 
 - X API 按 [官方定价](https://developer.x.com/en/docs/twitter-api/getting-started/about-twitter-api) 计费；Free 档读取配额有限，Basic 档更适合每日定时扫描  
-- 本工具默认 63 天窗口 + 分页，单次扫描某账号通常消耗 **数页到数十次** Read 请求  
+- 启用 MySQL 缓存后，日常 CI 通常只需 **数页增量** Read 请求（首次全量除外）
 - 若返回 `401`/`403`，检查 Token 是否过期、App 是否为 Read 权限、套餐配额是否用尽
 
 ## 使用
@@ -158,6 +200,7 @@ python main.py scan --after 2025-01-01 --before 2025-06-01
 
 ```
 stock_detect/
+├── tweet_cache.py       # MySQL 博文缓存与去重
 ├── x_api_client.py      # X 官方 API v2（OAuth Bearer / OAuth1）
 ├── twitter_fetcher.py   # X 时间线（OAuth 优先，Guest 回退）
 ├── reddit_fetcher.py    # WSB 归档

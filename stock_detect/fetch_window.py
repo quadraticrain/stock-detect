@@ -18,6 +18,9 @@ class FetchStats:
     streams_unavailable: list[str] = field(default_factory=list)
     x_auth_mode: str | None = None
 
+    cache_posts: int = 0
+    api_posts_new: int = 0
+
     def to_dict(self) -> dict:
         payload = {
             "pages_fetched": self.pages_fetched,
@@ -26,6 +29,8 @@ class FetchStats:
             "posts_fetched": self.posts_fetched,
             "streams_used": self.streams_used,
             "streams_unavailable": self.streams_unavailable,
+            "cache_posts": self.cache_posts,
+            "api_posts_new": self.api_posts_new,
         }
         if self.x_auth_mode:
             payload["x_auth_mode"] = self.x_auth_mode

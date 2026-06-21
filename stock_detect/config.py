@@ -64,3 +64,25 @@ REDDIT_PAGE_SIZE = 100
 DEFAULT_X_ACCOUNTS = [
     "aleabitoreddit",
 ]
+
+# MySQL cache (investment_cache) — password via MYSQL_PASSWORD env / GitHub Secret only
+MYSQL_HOST = "rm-wz91qxav0rb3uxf17ro.mysql.cn-shenzhen.rds.aliyuncs.com"
+MYSQL_PORT = 3306
+MYSQL_DATABASE = "cache_data"
+MYSQL_USER = "cache_data_write"
+MYSQL_SERVICE = "stock_detect"
+MYSQL_TABLE_POSTS = f"{MYSQL_SERVICE}_x_posts"
+MYSQL_TABLE_STATE = f"{MYSQL_SERVICE}_x_fetch_state"
+
+# Incremental API fetch: fewer pages when cache already has history
+INCREMENTAL_MAX_PAGES = 8
+FULL_FETCH_MAX_PAGES = MAX_FETCH_PAGES
+
+# X API credentials (non-password config in repo; override via env if needed)
+X_BEARER_TOKEN = ""
+X_CLIENT_ID = "YzBxeEd6WDBTMEY5VnZjZHp0aFg6MTpjaQ"
+X_CLIENT_SECRET = "J-yTu1l52IjH3goD8CiMx7Yixx_Ac9GX9Xx9uGGPxm6Gf2qLw7"
+X_API_KEY = ""
+X_API_SECRET = ""
+X_ACCESS_TOKEN = ""
+X_ACCESS_TOKEN_SECRET = ""

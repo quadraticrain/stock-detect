@@ -14,6 +14,8 @@ import requests
 
 from stock_detect.config import (
     DEFAULT_X_ACCOUNTS,
+    FULL_FETCH_MAX_PAGES,
+    INCREMENTAL_MAX_PAGES,
     MAX_FETCH_PAGES,
     MAX_FETCH_POSTS,
     REQUEST_DELAY_SEC,
@@ -21,6 +23,7 @@ from stock_detect.config import (
 )
 from stock_detect.fetch_window import FetchStats, FetchWindow, default_fetch_window, filter_to_window
 from stock_detect.models import SocialPost
+from stock_detect.tweet_cache import TweetCache
 from stock_detect.x_api_client import XApiClient
 
 _SYNDICATION = "https://syndication.twitter.com/srv/timeline-profile/screen-name/{screen_name}"
@@ -134,6 +137,101 @@ class TwitterFetcher:
         max_posts: int,
         stats: FetchStats,
     ) -> list[SocialPost]:
+        cache = TweetCache()
+        if cache.available:
+            try:
+                return self._fetch_account_cached(
+                    screen_name,
+                    window=window,
+                    max_pages=max_pages,
+                    max_posts=max_posts,
+                    stats=stats,
+                    cache=cache,
+                )
+            except Exception:
+                pass
+
+        return self._fetch_account_direct(
+            screen_name,
+            window=window,
+            max_pages=max_pages,
+            max_posts=max_posts,
+            stats=stats,
+        )
+
+    def _fetch_account_cached(
+        self,
+        screen_name: str,
+        *,
+        window: FetchWindow,
+        max_pages: int,
+        max_posts: int,
+        stats: FetchStats,
+        cache: TweetCache,
+    ) -> list[SocialPost]:
+        cache.ensure_schema()
+        cached = cache.list_posts(screen_name, window)
+        stats.cache_posts = len(cached)
+        stats.streams_used.append("MySQLCache")
+
+        state = cache.get_state(screen_name)
+        since_id = state.last_tweet_id if state else None
+        user_id = state.user_id if state else None
+
+        if self.x_api.is_configured():
+            stats.x_auth_mode = self.x_api.credentials.auth_mode()
+            api_pages = INCREMENTAL_MAX_PAGES if since_id else min(max_pages, FULL_FETCH_MAX_PAGES)
+            if not user_id:
+                user_id = self.x_api.resolve_user_id(screen_name, stats)
+                if user_id:
+                    cache.save_state(screen_name, user_id=user_id)
+            new_posts = self.x_api.fetch_user_timeline(
+                screen_name,
+                window=window,
+                max_pages=api_pages,
+                max_posts=max_posts,
+                stats=stats,
+                since_id=since_id,
+                user_id=user_id,
+            )
+            if new_posts:
+                stats.api_posts_new = cache.upsert_posts(new_posts)
+                newest = TweetCache.newest_tweet_id(new_posts)
+                cache.save_state(
+                    screen_name,
+                    user_id=user_id,
+                    last_tweet_id=newest,
+                )
+            stats.streams_used.append("XApiV2")
+
+        if not cache.list_posts(screen_name, window):
+            guest_posts = self._fetch_guest_sources(
+                screen_name,
+                window=window,
+                max_pages=max_pages,
+                max_posts=max_posts,
+                stats=stats,
+            )
+            if guest_posts:
+                inserted = cache.upsert_posts(guest_posts)
+                stats.api_posts_new += inserted
+                newest = TweetCache.newest_tweet_id(guest_posts)
+                cache.save_state(screen_name, last_tweet_id=newest)
+
+        cache.prune_before(screen_name, window.after)
+        posts = cache.list_posts(screen_name, window)
+        stats.cache_posts = len(posts)
+        return posts[:max_posts]
+
+    def _fetch_account_direct(
+        self,
+        screen_name: str,
+        *,
+        window: FetchWindow,
+        max_pages: int,
+        max_posts: int,
+        stats: FetchStats,
+    ) -> list[SocialPost]:
         posts_by_id: dict[str, SocialPost] = {}
 
         if self.x_api.is_configured():
@@ -151,6 +249,27 @@ class TwitterFetcher:
                     posts_by_id.setdefault(post.id, post)
                 return list(posts_by_id.values())[:max_posts]
 
+        for post in self._fetch_guest_sources(
+            screen_name,
+            window=window,
+            max_pages=max_pages,
+            max_posts=max_posts,
+            stats=stats,
+        ):
+            posts_by_id.setdefault(post.id, post)
+
+        return list(posts_by_id.values())[:max_posts]
+
+    def _fetch_guest_sources(
+        self,
+        screen_name: str,
+        *,
+        window: FetchWindow,
+        max_pages: int,
+        max_posts: int,
+        stats: FetchStats,
+    ) -> list[SocialPost]:
+        posts_by_id: dict[str, SocialPost] = {}
         user_id = self._resolve_user_id(screen_name)
         if user_id:
             pages_per_stream = max(3, max_pages // len(_GRAPHQL_STREAMS))

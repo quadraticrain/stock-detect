@@ -11,6 +11,7 @@ from rich.console import Console
 from rich.table import Table
 
 from stock_detect.analyzer import SignalAnalyzer
+from stock_detect.env import bootstrap
 from stock_detect.market_data import top_performers
 from stock_detect.reddit_fetcher import RedditFetcher
 from stock_detect.twitter_fetcher import TwitterFetcher
@@ -138,6 +139,8 @@ def cmd_scan(args: argparse.Namespace) -> int:
             "fetched_posts": report.fetched_posts,
             "actionable_posts": report.actionable_posts,
             "accounts": report.accounts_scanned,
+            "fetch_stats": report.fetch_stats.to_dict() if report.fetch_stats else None,
+            "fetch_window": report.fetch_window.to_dict() if report.fetch_window else None,
             "top_tickers": [
                 {
                     "ticker": t.ticker,
@@ -233,6 +236,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    bootstrap()
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
