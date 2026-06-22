@@ -53,8 +53,16 @@ USER_AGENT = "stock-detect/0.2 (research tool; X + WSB signals)"
 
 # Fixed fetch window (paper-style ~63 trading days) and CI-safe caps
 FETCH_WINDOW_DAYS = 63
+# Official X API user-timeline start_time cannot go further back than this
+X_API_MAX_DAYS = 63
 MAX_FETCH_PAGES = 40
 MAX_FETCH_POSTS = 4000
+# Manual / extended runs (e.g. prolific accounts over 180 days)
+EXTENDED_MAX_FETCH_PAGES = 300
+EXTENDED_MAX_FETCH_POSTS = 25000
+# Guest backfill: scale pages per day beyond the X API floor
+GUEST_PAGES_PER_EXTRA_DAY = 3
+GUEST_POSTS_PER_EXTRA_DAY = 80
 REQUEST_DELAY_SEC = 1.5
 REDDIT_PAGE_SIZE = 100
 

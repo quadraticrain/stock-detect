@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
-from stock_detect.config import FETCH_WINDOW_DAYS
+from stock_detect.config import FETCH_WINDOW_DAYS, X_API_MAX_DAYS
 
 
 @dataclass
@@ -71,6 +71,39 @@ def default_fetch_window(
 
 def filter_to_window(items: list, window: FetchWindow, *, created_at) -> list:
     return [item for item in items if window.contains(created_at(item))]
+
+
+def x_api_earliest(*, before: datetime | None = None) -> datetime:
+    """Earliest datetime reachable via official X API start_time (UTC)."""
+    end = before or datetime.now(timezone.utc)
+    if end.tzinfo is None:
+        end = end.replace(tzinfo=timezone.utc)
+    return end - timedelta(days=X_API_MAX_DAYS)
+
+
+def guest_backfill_window(
+    window: FetchWindow,
+    oldest_cached: datetime | None,
+) -> FetchWindow | None:
+    """Sub-window [window.after, min(api_earliest, oldest_cached)) for guest-only history."""
+    api_floor = x_api_earliest(before=window.before)
+    if window.after >= api_floor:
+        return None
+    guest_before = api_floor
+    if oldest_cached is not None:
+        if oldest_cached.tzinfo is None:
+            oldest_cached = oldest_cached.replace(tzinfo=timezone.utc)
+        else:
+            oldest_cached = oldest_cached.astimezone(timezone.utc)
+        guest_before = min(guest_before, oldest_cached)
+    if guest_before <= window.after:
+        return None
+    return FetchWindow(
+        after=window.after,
+        before=guest_before,
+        window_days=window.window_days,
+        api_start_time=False,
+    )
 
 
 def gap_window_before(window: FetchWindow, oldest_cached: datetime) -> FetchWindow | None:

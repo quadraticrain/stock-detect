@@ -6,7 +6,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock
 
-from stock_detect.fetch_window import FetchWindow, default_fetch_window, filter_to_window, gap_window_before
+from stock_detect.fetch_window import FetchWindow, default_fetch_window, filter_to_window, gap_window_before, guest_backfill_window, x_api_earliest
 from stock_detect.models import SocialPost
 from stock_detect.twitter_fetcher import TwitterFetcher
 
@@ -43,6 +43,33 @@ class FetchWindowTests(unittest.TestCase):
         self.assertEqual(gap.before, datetime(2026, 6, 16, tzinfo=timezone.utc))
         self.assertIsNone(
             gap_window_before(window, datetime(2026, 4, 10, tzinfo=timezone.utc))
+        )
+
+    def test_guest_backfill_window_for_extended_lookback(self):
+        before = datetime(2026, 6, 21, tzinfo=timezone.utc)
+        window = default_fetch_window(before=before, window_days=180)
+        api_floor = x_api_earliest(before=before)
+
+        guest = guest_backfill_window(window, oldest_cached=None)
+        self.assertIsNotNone(guest)
+        assert guest is not None
+        self.assertEqual(guest.after, window.after)
+        self.assertEqual(guest.before, api_floor)
+
+        inside = guest_backfill_window(window, oldest_cached=datetime(2026, 5, 1, tzinfo=timezone.utc))
+        self.assertIsNotNone(inside)
+        assert inside is not None
+        self.assertEqual(inside.before, api_floor)
+
+        self.assertIsNone(
+            guest_backfill_window(
+                FetchWindow(
+                    after=datetime(2026, 5, 1, tzinfo=timezone.utc),
+                    before=before,
+                    window_days=63,
+                ),
+                oldest_cached=None,
+            )
         )
 
 
