@@ -20,6 +20,7 @@ from stock_detect.config import (
 )
 from stock_detect.fetch_window import FetchWindow
 from stock_detect.models import SocialPost, sort_posts_chronological
+from stock_detect.scan_marker import CI_MARKER_POST_PREFIX, ci_marker_for, ci_marker_post_id, ci_marker_text
 
 try:
     import pymysql
@@ -75,6 +76,11 @@ _TABLES: tuple[_TableDef, ...] = (
             _ColumnDef("user_id", "VARCHAR(32) NULL"),
             _ColumnDef("last_tweet_id", "VARCHAR(32) NULL"),
             _ColumnDef("last_fetch_at", "DATETIME(6) NULL"),
+            _ColumnDef("last_ci_marker", "VARCHAR(32) NULL"),
+            _ColumnDef("last_ci_scan_at", "DATETIME(6) NULL"),
+            _ColumnDef("last_ci_api_posts_new", "INT NULL"),
+            _ColumnDef("last_ci_window_days", "INT NULL"),
+            _ColumnDef("last_ci_run_id", "VARCHAR(64) NULL"),
         ),
         primary_key=("account",),
     ),
@@ -87,6 +93,11 @@ class FetchState:
     user_id: str | None = None
     last_tweet_id: str | None = None
     last_fetch_at: datetime | None = None
+    last_ci_marker: str | None = None
+    last_ci_scan_at: datetime | None = None
+    last_ci_api_posts_new: int | None = None
+    last_ci_window_days: int | None = None
+    last_ci_run_id: str | None = None
 
 
 def init_mysql_cache(*, strict: bool = False) -> bool:
@@ -225,7 +236,9 @@ class TweetCache:
             with conn.cursor() as cur:
                 cur.execute(
                     f"""
-                    SELECT account, user_id, last_tweet_id, last_fetch_at
+                    SELECT account, user_id, last_tweet_id, last_fetch_at,
+                           last_ci_marker, last_ci_scan_at, last_ci_api_posts_new,
+                           last_ci_window_days, last_ci_run_id
                     FROM {MYSQL_TABLE_STATE}
                     WHERE account = %s
                     """,
@@ -239,6 +252,11 @@ class TweetCache:
             user_id=row.get("user_id"),
             last_tweet_id=row.get("last_tweet_id"),
             last_fetch_at=row.get("last_fetch_at"),
+            last_ci_marker=row.get("last_ci_marker"),
+            last_ci_scan_at=row.get("last_ci_scan_at"),
+            last_ci_api_posts_new=row.get("last_ci_api_posts_new"),
+            last_ci_window_days=row.get("last_ci_window_days"),
+            last_ci_run_id=row.get("last_ci_run_id"),
         )
 
     def save_state(
@@ -264,6 +282,83 @@ class TweetCache:
                     """,
                     (account, user_id, last_tweet_id, now.replace(tzinfo=None)),
                 )
+
+    def record_ci_scan(
+        self,
+        account: str,
+        *,
+        api_posts_new: int,
+        window_days: int | None = None,
+        run_id: str | None = None,
+    ) -> str:
+        """Persist CI scan outcome for downstream web/API (###NO_NEW### or ***NEW:n***)."""
+        account = account.lstrip("@").lower()
+        marker = ci_marker_for(api_posts_new)
+        now = datetime.now(timezone.utc)
+        run_id = (run_id or os.environ.get("GITHUB_RUN_ID", "").strip()) or None
+        now_naive = now.replace(tzinfo=None)
+
+        with self._connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"""
+                    INSERT INTO {MYSQL_TABLE_STATE}
+                        (account, last_fetch_at, last_ci_marker, last_ci_scan_at,
+                         last_ci_api_posts_new, last_ci_window_days, last_ci_run_id)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    ON DUPLICATE KEY UPDATE
+                        last_fetch_at = VALUES(last_fetch_at),
+                        last_ci_marker = VALUES(last_ci_marker),
+                        last_ci_scan_at = VALUES(last_ci_scan_at),
+                        last_ci_api_posts_new = VALUES(last_ci_api_posts_new),
+                        last_ci_window_days = VALUES(last_ci_window_days),
+                        last_ci_run_id = VALUES(last_ci_run_id)
+                    """,
+                    (
+                        account,
+                        now_naive,
+                        marker,
+                        now_naive,
+                        api_posts_new,
+                        window_days,
+                        run_id,
+                    ),
+                )
+                marker_post_id = ci_marker_post_id(account)
+                marker_body = ci_marker_text(
+                    marker,
+                    window_days=window_days,
+                    run_id=run_id,
+                    scanned_at=now,
+                )
+                run_url = ""
+                github_repo = os.environ.get("GITHUB_REPOSITORY", "").strip()
+                if run_id and github_repo:
+                    run_url = f"https://github.com/{github_repo}/actions/runs/{run_id}"
+                cur.execute(
+                    f"""
+                    INSERT INTO {MYSQL_TABLE_POSTS}
+                        (post_id, author, text, created_at, score, url, tickers, source, fetched_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON DUPLICATE KEY UPDATE
+                        text = VALUES(text),
+                        created_at = VALUES(created_at),
+                        fetched_at = VALUES(fetched_at),
+                        url = VALUES(url)
+                    """,
+                    (
+                        marker_post_id,
+                        account,
+                        marker_body,
+                        now_naive,
+                        -1,
+                        run_url or f"ci-scan://{account}",
+                        json.dumps([]),
+                        "ci_marker",
+                        now_naive,
+                    ),
+                )
+        return marker
 
     def existing_post_ids(self, post_ids: list[str], *, chunk_size: int = 500) -> set[str]:
         """Return post_ids already present in MySQL (batch IN query)."""
@@ -427,9 +522,10 @@ class TweetCache:
                     SELECT post_id, author, text, created_at, score, url, tickers, source
                     FROM {MYSQL_TABLE_POSTS}
                     WHERE author = %s AND created_at >= %s AND created_at <= %s
+                      AND post_id NOT LIKE %s
                     ORDER BY created_at DESC
                     """,
-                    (account, after, before),
+                    (account, after, before, f"{CI_MARKER_POST_PREFIX}%"),
                 )
                 rows = cur.fetchall()
         posts: list[SocialPost] = []

@@ -13,6 +13,7 @@ sys.path.insert(0, str(ROOT))
 
 from stock_detect.analyzer import SignalAnalyzer  # noqa: E402
 from stock_detect.config import FETCH_WINDOW_DAYS  # noqa: E402
+from stock_detect.ci_scan_metadata import merge_ci_scan_metadata  # noqa: E402
 from stock_detect.env import bootstrap  # noqa: E402
 from stock_detect.fetch_window import default_fetch_window  # noqa: E402
 from stock_detect.report_payload import report_to_dict  # noqa: E402
@@ -44,7 +45,8 @@ def analyze_from_cache(
         all_cashtags=not sp500_only,
         sp500_only=sp500_only,
     )
-    return report_to_dict(report, accounts=accounts)
+    payload = report_to_dict(report, accounts=accounts)
+    return merge_ci_scan_metadata(payload, accounts, cache)
 
 
 def main() -> int:

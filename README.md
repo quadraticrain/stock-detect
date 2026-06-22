@@ -43,7 +43,16 @@ cp .env.example .env   # 填入 MYSQL_PASSWORD（见下文 MySQL 缓存）
 ### 表结构
 
 - `stock_detect_x_posts` — 推文正文、时间、tickers、URL 等（主键 `post_id`）
-- `stock_detect_x_fetch_state` — 每账号 `user_id`、`last_tweet_id`、上次抓取时间
+- `stock_detect_x_fetch_state` — 每账号 `user_id`、`last_tweet_id`、上次抓取时间，以及 CI 扫描标记（`last_ci_marker` 等）
+
+每次 CI 扫描结束都会写入标记，供下游 Web/API 识别「本次无新增」：
+
+| `last_ci_marker` | 含义 |
+|------------------|------|
+| `###NO_NEW###` | 本次扫描未写入新推文 |
+| `***NEW:{n}***` | 本次扫描新写入 `n` 条推文 |
+
+同时在 `stock_detect_x_posts` 保留一条 `post_id` 以 `###CI_SCAN_` 开头的哨兵行（分析时会自动排除）。
 
 首次启动会自动同步表结构（建表、补列、补索引），无需手动维护 DDL。表定义在 `stock_detect/tweet_cache.py` 的 `_TABLES` 中维护。
 

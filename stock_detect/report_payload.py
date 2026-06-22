@@ -6,6 +6,7 @@ import os
 from datetime import datetime, timezone
 
 from stock_detect.analyzer import AnalysisReport
+from stock_detect.scan_marker import MARKER_NO_NEW
 
 
 def report_to_dict(report: AnalysisReport, *, accounts: list[str]) -> dict:
@@ -56,6 +57,8 @@ def report_to_dict(report: AnalysisReport, *, accounts: list[str]) -> dict:
     api_new = payload.get("api_posts_new")
     if api_new is not None:
         payload["data_unchanged"] = api_new == 0
+    elif payload.get("ci_scan_marker"):
+        payload["data_unchanged"] = payload["ci_scan_marker"] == MARKER_NO_NEW
 
     return payload
 
@@ -81,4 +84,8 @@ def run_entry(data: dict) -> dict:
         entry["cache_posts"] = data["cache_posts"]
     if data.get("ci_run_url"):
         entry["ci_run_url"] = data["ci_run_url"]
+    if data.get("ci_scan_marker"):
+        entry["ci_scan_marker"] = data["ci_scan_marker"]
+    if data.get("ci_scan_at"):
+        entry["ci_scan_at"] = data["ci_scan_at"]
     return entry
