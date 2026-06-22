@@ -209,21 +209,14 @@ stock_detect/
 └── cli.py
 ```
 
-## GitHub Pages 报告
+## CI 扫描（MySQL）
 
-CI 每天 **北京时间 09:00** 自动运行扫描；也可在 Actions 里 **手动触发**（`workflow_dispatch`）。结果发布到 **`gh-pages` 分支**：
+CI 每天 **北京时间 09:00** 自动拉取 X 时间线写入 MySQL；也可在 Actions 里 **手动触发**（`workflow_dispatch`）。报告页面已迁移至 [GolangCalculateServer](https://github.com/quadraticrain/GolangCalculateServer) 的 `web/public/stock-detect/`，由后端 API 从 MySQL 实时生成。
 
-**https://quadraticrain.github.io/stock-detect/**
-
-- 首页：历次 CI 报告列表，可按 **Source / Account** 筛选
-- 每次 CI：生成独立页面 `reports/{run_id}.html`
-- 顶部导航栏：切换不同 CI 运行结果
-- 最新报告快捷入口：`latest.html`
-
-本地生成静态站点：
+本地仅分析缓存（不拉取）：
 
 ```bash
-python scripts/build_pages.py --output site
+python scripts/analyze_mysql_report.py --accounts aleabitoreddit
 ```
 
 ## 运行耗时

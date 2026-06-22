@@ -1,4 +1,4 @@
-name: Scan and publish GitHub Pages
+name: Scan MySQL (X fetch)
 
 on:
   schedule:
@@ -26,15 +26,12 @@ on:
         default: "40"
         type: string
 
-permissions:
-  contents: write
-
 concurrency:
-  group: pages
+  group: scan-mysql
   cancel-in-progress: true
 
 jobs:
-  scan-and-deploy:
+  scan:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -67,13 +64,6 @@ jobs:
             --max-pages "$MAX_PAGES" \
             --format json
 
-      - name: Fetch existing gh-pages for history
-        uses: actions/checkout@v4
-        with:
-          ref: gh-pages
-          path: gh-pages-prev
-        continue-on-error: true
-
       - name: Guest pre-API prefetch (extended window)
         if: steps.caps.outputs.guest_prefetch == '1'
         env:
@@ -85,14 +75,12 @@ jobs:
             --max-posts "${{ steps.caps.outputs.max_posts }}" \
             --max-pages "${{ steps.caps.outputs.max_pages }}"
 
-      - name: Build report site
+      - name: Fetch into MySQL
         env:
           MYSQL_PASSWORD: ${{ secrets.MYSQL_PASSWORD }}
           X_BEARER_TOKEN: ${{ secrets.X_BEARER_TOKEN }}
         run: |
-          python scripts/build_pages.py \
-            --output site \
-            --merge-from gh-pages-prev \
+          python scripts/scan_mysql.py \
             --source x \
             --accounts "${{ github.event.inputs.accounts || 'aleabitoreddit' }}" \
             --window-days "${{ github.event.inputs.window_days || '63' }}" \
@@ -106,13 +94,3 @@ jobs:
           python scripts/mysql_coverage.py \
             --accounts "${{ github.event.inputs.accounts || 'aleabitoreddit' }}" \
             --window-days "${{ github.event.inputs.window_days || '63' }}"
-
-      - name: Deploy to gh-pages
-        uses: peaceiris/actions-gh-pages@v4
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./site
-          publish_branch: gh-pages
-          force_orphan: false
-          keep_files: true
-          commit_message: "chore: add CI scan report"

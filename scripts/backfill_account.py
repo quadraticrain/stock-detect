@@ -195,25 +195,6 @@ def main() -> int:
             subprocess.run(
                 [
                     sys.executable,
-                    str(ROOT / "scripts" / "build_pages.py"),
-                    "--output",
-                    "/tmp/backfill-site",
-                    "--source",
-                    "x",
-                    "--accounts",
-                    account,
-                    "--window-days",
-                    str(args.window_days),
-                    "--limit",
-                    str(posts),
-                    "--max-pages",
-                    str(pages),
-                ],
-                check=True,
-            )
-            subprocess.run(
-                [
-                    sys.executable,
                     str(ROOT / "scripts" / "mysql_coverage.py"),
                     "--accounts",
                     account,
