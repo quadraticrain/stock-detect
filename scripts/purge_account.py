@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Remove one X account's cached posts, fetch state, and AI analysis rows from MySQL."""
+"""Remove one X account's cached posts, fetch state, and AI analysis rows from MySQL.
+
+Manual-only CLI: not imported or invoked by CI, cron, or scan/analyze code paths.
+Use --dry-run first, then confirm interactively (or --yes for automation).
+"""
 
 from __future__ import annotations
 
