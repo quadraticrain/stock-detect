@@ -1,8 +1,15 @@
-# OpenClaw 定时任务 Prompt — stock-detect AI 舆情分析（v4）
+# OpenClaw 定时任务 Prompt — stock-detect AI 舆情分析（v5）
 
 > **用途**：复制下方「系统 Prompt」与「用户 Prompt」到 OpenClaw。  
 > **职责**：从 MySQL **增量**读取 X 推文，做语义级舆情分析，写入 `stock_detect_ai_*` 四表，并**持久化断点**供下次续跑。  
 > **与关键词报告的区别**：GolangCalculateServer `/api/stock-detect/report` 使用死板词表；**本任务不使用那套规则**。
+>
+> **v5 变更（2026-06-22，基于首次全量处理三账号数据的实证观察）**：
+> - 将「Ticker 识别」从单条规则扩展为**6 类映射 + 7 级态度**的完整框架
+> - 修正 elonmusk 规则过窄问题：SpaceX/xAI/Grok 不再「不映射」
+> - **v5.1 修正（2026-06-22）**：SpaceX 已于 2026-06-12 在 NASDAQ IPO（代码 **SPCX**，募资 $75B，史上最大 IPO），xAI 于 2026 年初并入 SpaceX。因此 SpaceX/Starlink/xAI/Grok 提及应**直接映射 SPCX**（类型 B），不再走 Type C 影响传导；同时保留 TSLA 作为次要传导信号（Musk 财富集中效应）
+> - 新增「主题篮子映射」规则：博主反复讨论的行业主题（Neocloud / InP 光子学 / 国防无人机等）映射到该博主历史持仓的一篮子 ticker
+> - 新增「供应链语境映射」规则：提及 TSMC/台积电 → TSM，提及 hyperscaler 客户 → 对应 ticker 作为 context neutral
 
 ---
 
@@ -39,11 +46,11 @@
 
 ## 分析账号（默认全跑）
 
-| 账号 | 类型 | AI 分析要点 |
+| 账号 | 类型 | AI 分析要点（基于首次全量实证） |
 |------|------|-------------|
-| `aleabitoreddit` | 半导体/供应链投资博主 | 识别 `$TICKER`、行业黑话 |
-| `elonmusk` | 企业家/政治人物 | Tesla→TSLA 语义映射；少 explicit buy |
-| `HillaryClinton` | 政治人物 | 非财经语境多数 neutral |
+| `aleabitoreddit` | 半导体/AI 基础设施投资博主 | 显式 `$TICKER` 为主（307/400 帖含 cashtag），评级直接（Strong Buy/Buy/Hold/Sell）。**主题篮子明显**：Neocloud（NBIS/CRWV/IREN/WULF/CIFR/BITF/WYFI）、InP 光子学瓶颈（AXTI/LITE/COHR/AAOI/POET/DOWA/SMTOY）、国防无人机（AIRO/OSS/AVAV）、委内瑞拉国家建设（GRZ/CVX/AVAV/ASHM/TRGP）、算力连结（ALAB/CRDO/MRVL/AVGO/TSM/MU/SMCI）。逐帖给评级时，对篮子内未点名的 ticker 也应给 neutral context 信号。 |
+| `elonmusk` | 企业家（Tesla/SpaceX/xAI） | **0 条显式 $TICKER**，但推文高度聚焦其商业版图。**SpaceX 已于 2026-06-12 IPO（NASDAQ: SPCX），xAI 已并入 SpaceX**。因此 SpaceX/Starlink/xAI/Grok/Starship 提及应**直接映射 SPCX**（类型 B，confidence 0.5–0.65），同时给 TSLA 次要传导信号（confidence 0.4–0.5，Musk 财富集中效应）。Optimus/Neuralink 仍为未上市实体 → Type C 影响 TSLA。TSMC 作为客户/供应商 → TSM；BTC/DOGE 加密提及 → BTC/DOGE。 |
+| `HillaryClinton` | 政治人物 | 首批 69 帖 0 条可映射 ticker：profit/tax/dollar 均为政治批评用语，dow 为无人机名误匹配。**保持 0 signals**；仅当出现明确行业政策批评（如「Big Oil」→ XOM/CVX 负向、「清洁能源」→ 太阳能篮子正向）时才映射，且 confidence ≤ 0.4。 |
 
 ---
 
@@ -114,17 +121,87 @@ LIMIT :batch_limit;
 - 关键词报告：$TICKER + 固定英文词表
 - 本任务：自然语言理解；优先 MySQL `tickers` JSON（X API entities）
 
-## Ticker 识别优先级
+## Ticker 识别优先级（6 类映射，按强度递减）
 
-1. `tickers` JSON 列（X API entities）
-2. 正文 `$TICKER`
-3. 账号映射（elonmusk: Tesla→TSLA，仅语境相关时）
+> 以下分类基于 2026-06-22 首次全量处理三账号 869 帖的实证观察。
+
+### 类型 A：显式 cashtag（最强信号）
+正文含 `$TICKER`。直接取用，无需推断。
+- 例：aleabitoreddit「Bought $500K worth of $NBIS」→ NBIS
+
+### 类型 B：公司名 → 公开 ticker
+正文用公司全称或常见简称，对应到公开交易 ticker。
+- Nebius → NBIS；CoreWeave → CRWV；Tesla → TSLA；TSMC/台积电 → TSM；Nvidia → NVDA
+- **SpaceX → SPCX**（2026-06-12 NASDAQ IPO，代码 SPCX）
+- **xAI / Grok → SPCX**（2026 年初并入 SpaceX，不再独立）
+- **Starlink → SPCX**（SpaceX 子公司，未独立上市）
+- 此类映射需该公司确实公开上市。
+
+### 类型 C：未上市实体 → 影响传导映射（v5 新增，修正 elonmusk 过窄问题）
+博主反复讨论的**未上市公司**，若通过以下路径**实质影响某公开 ticker 估值**，则映射为该 ticker 的信号（confidence 按传导衰减，通常 0.4–0.6）：
+
+| 未上市实体 | 传导路径 | 映射 ticker | 典型 confidence |
+|-----------|---------|------------|----------------|
+| Optimus | Tesla 人形机器人产品线，直接属于 Tesla | TSLA | 0.45–0.6 |
+| Neuralink | 关联实体，弱传导 | TSLA（弱） | 0.35–0.45 |
+| The Boring Company | 关联性弱 | 不映射 | — |
+
+> **注意**：SpaceX/xAI/Starlink 已在 v5.1 升级为 Type B（直接映射 SPCX），不再走 Type C。但对于**同时讨论 SpaceX 与 Tesla 协同**的帖子（如 TERAFAB JV），除主信号 SPCX 外，也应给 TSLA 次要传导信号（confidence 0.4–0.5）。
+
+**判断标准**：该帖是否讨论了未上市实体与公开 ticker 的**业务协同、资产结构、或估值传导**。纯产品宣传也给 TSLA 信号，因为生态粘性利好。
+
+### 类型 D：行业主题 → 篮子映射（v5 新增）
+博主反复讨论的**行业主题**，映射到该博主**历史帖中反复出现的同主题 ticker 篮子**。即使本帖只点了篮子内一只，其余篮子成员也给 neutral context 信号（confidence 0.4–0.5）。
+
+**已识别的主题篮子（aleabitoreddit 实证）**：
+
+| 主题 | 篮子成员 | 触发词示例 |
+|------|---------|-----------|
+| Neocloud（AI 算力矿工） | NBIS, CRWV, IREN, WULF, CIFR, BITF, WYFI, APLD, CLSK, HUT, RIOT, MARA, CORZ, GLXY | "neocloud", "AI infrastructure", "GPU cloud" |
+| InP 光子学瓶颈 | AXTI, LITE, COHR, AAOI, POET, DOWA, SMTOY, IQEPF | "InP", "indium phosphide", "photonics", "chokepoint" |
+| 算力连结 / 硅片 | ALAB, CRDO, MRVL, AVGO, NVDA, AMD, MU, TSM, SMCI, DELL, INTC, AMKR | "connectivity", "silicon", "AEC", "ASIC" |
+| 国防无人机 / 航天 | AIRO, OSS, AVAV, KTOS, RKLB, FLY, ASTS, LMT, RTX, HII, LHX, BA, HON | "defense", "drone", "unmanned", "DoD" |
+| 委内瑞拉国家建设 | GRZ, CVX, AVAV, ASHM, TRGP, VLO, PSX, MPC, HAL, BKR, XOM | "Venezuela", "nation building", "regime change" |
+| 加密货币 | BTC, IBIT, ETH, SOL, DOGE, MSTR | "bitcoin", "crypto", "BTC", "ETF" |
+
+新主题随博主内容演进可动态扩展（在 summary 中标注新篮子）。
+
+### 类型 E：供应链语境映射（v5 新增）
+帖中提及某公司作为**客户/供应商/合作伙伴**，虽非主体，但构成 context 信号。
+- 例：aleabitoreddit 帖中 MSFT/GOOGL/META/AMZN 作为 Neocloud 客户 → 这四只各给 neutral 信号
+- 例：elonmusk 帖中 TSMC 作为 Tesla 客户关系 → TSM 信号（若讨论了供需）
+
+### 类型 F：不映射（明确排除）
+- 泛用词作为动词/名词：job, tax, dollar, invest, profit（非公司名）
+- 个人生活、节日、纯社交互动
+- 政治批评中未指向具体行业/ticker 的（HillaryClinton 多数帖）
+- 产品名与公司名碰撞（如 "dow" 指无人机而非 DOW 化工）
+
+---
+
+## 态度 / 推荐分级（7 级，基于实证）
+
+> recommendation 字段仍为 buy|hold|sell|neutral 四值，但 confidence 与 reasoning 应体现以下细分态度。
+
+| 态度 | recommendation | confidence 区间 | 识别特征（实证） |
+|------|---------------|----------------|-----------------|
+| **最高信念多头** | buy | 0.75–0.9 | "highest conviction", "Strong Buy", "screaming buy", "once-in-a-decade", 自述大额持仓+目标价 |
+| **战术性买入** | buy | 0.6–0.75 | "dip buy", "Fire Sale", 具体行权价/止损位，波段交易教学 |
+| **主题性看好** | buy | 0.55–0.7 | 因行业 thesis 看好，如「Neocloud 是国安竞赛」「InP 是 AI 瓶颈」 |
+| **持有/维持** | hold | 0.5–0.6 | "Hold", 现有持仓维持，无增减仓动作 |
+| **战术性卖出/减仓** | sell | 0.55–0.65 | 获利了结、换仓（如卖 IREN 换 NBIS）、止损 |
+| **结构性看空** | sell | 0.6–0.7 | "huge warning", "debt trap", 重大风险事件（如 CRCL 解禁、IQEPF 在卖公司） |
+| **中性/语境** | neutral | 0.35–0.5 | 仅作为对比、客户、供应商提及；产品宣传无明确利好；政治泛指 |
+
+**elonmusk 专属校准**：因少 explicit buy，其信号 confidence 整体下调 0.1。SpaceX/Starlink/xAI 提及 → SPCX 主信号（confidence 0.5–0.65）+ TSLA 传导次信号（0.4–0.5）。明确产品/技术里程碑（如「AI5 taped out」「TERAFAB announcement」「Robotaxi 上线」）才给 TSLA buy 0.55–0.65；纯愿景（「Optimus 将成冯诺依曼探测器」）给 TSLA buy 0.5–0.55；纯社交/表情回应给 neutral 0.4。
+
+---
 
 ## 推荐取值
 
 - recommendation: buy | hold | sell | neutral
 - consensus_signal: buy | sell | neutral
-- prompt_version: 固定 `openclaw-v4`
+- prompt_version: 固定 `openclaw-v5`
 
 ## 硬性规则
 
@@ -154,13 +231,14 @@ LIMIT :batch_limit;
 ## 用户 Prompt（User，每次定时触发）
 
 ```
-执行 stock-detect 每日 AI 舆情分析（openclaw-v4，增量断点续跑）。
+执行 stock-detect 每日 AI 舆情分析（openclaw-v5，增量断点续跑）。
 
 - 账号列表：aleabitoreddit, elonmusk, HillaryClinton
 - mode：incremental（默认；仅当用户显式要求 replay 时才 full）
 - batch_limit：400（每账号每批最多处理帖数）
 - 当前 UTC：{{NOW_UTC}}
-- prompt_version：openclaw-v4
+- prompt_version：openclaw-v5
+- 分析规则：见「Ticker 识别优先级（6 类映射）」与「态度分级（7 级）」；尤其注意 elonmusk 的 SpaceX/xAI/Starlink → **SPCX** 直接映射（SpaceX 已于 2026-06-12 IPO），同时给 TSLA 次要传导信号
 
 对每个账号依次：
 1) 读 stock_detect_ai_runs 最新 checkpoint
@@ -170,7 +248,7 @@ LIMIT :batch_limit;
 
 完成后返回：
 {
-  "prompt_version": "openclaw-v4",
+  "prompt_version": "openclaw-v5",
   "accounts": [
     {
       "account": "aleabitoreddit",
@@ -229,7 +307,7 @@ INSERT INTO stock_detect_ai_runs (
   '20260622T050012Z_ai_elonmusk', 'elonmusk',
   '2025-12-01 00:00:00.000000', '2026-06-22 05:00:12.000000',
   400, 120, 85, 50,
-  'claude-4', 'openclaw-v4', 'partial',
+  'claude-4', 'openclaw-v5', 'partial',
   '本批处理 400 帖，断点已更新，下次从 checkpoint 继续……仅供参考，非投资建议。',
   UTC_TIMESTAMP(6),
   '1990000000000000001', '2026-05-01 10:00:00.000000',

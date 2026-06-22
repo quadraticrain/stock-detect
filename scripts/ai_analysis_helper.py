@@ -83,7 +83,7 @@ from stock_detect.config import (  # noqa: E402
 )
 from stock_detect.tweet_cache import TweetCache, init_mysql_cache  # noqa: E402
 
-PROMPT_VERSION = "openclaw-v4"
+PROMPT_VERSION = "openclaw-v5"
 DEFAULT_BATCH_LIMIT = 400
 
 
