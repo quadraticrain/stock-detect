@@ -11,3 +11,4 @@ site/
 site2/
 *.json
 !tests/fixtures/*.json
+.workbuddy/
