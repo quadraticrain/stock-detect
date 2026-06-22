@@ -411,6 +411,11 @@ class TwitterFetcher:
 
         posts = cache.list_posts(screen_name, window)
         stats.cache_posts = len(posts)
+        cache.record_ci_scan(
+            screen_name,
+            api_posts_new=api_inserted,
+            window_days=window.window_days,
+        )
         return posts[:max_posts]
 
     def _fetch_account_direct(
