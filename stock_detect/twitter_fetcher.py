@@ -646,9 +646,7 @@ class TwitterFetcher:
             in_window = len(posts)
             if in_window >= max_posts:
                 break
-            if page_posts and all(p.created < window.after for p in page_posts):
-                break
-            if not next_cursor or not page_posts:
+            if not next_cursor:
                 break
 
             cursor = next_cursor

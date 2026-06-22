@@ -129,27 +129,32 @@ def main() -> int:
             print(f"\n@{account}: invalid gap bounds")
             continue
 
-        if gap_before <= api_floor:
+        deep_pagination = gap_before <= api_floor
+
+        if deep_pagination:
             print(
                 f"\n@{account} gap: {gap_after.date()} .. {gap_before.date()}\n"
-                f"  Note: entire gap is older than X API 63-day window (starts {api_floor.date()}). "
-                f"Use scripts/backfill_history.py (guest) for this range; X API cannot reach it now."
+                f"  Deep API pagination (no start_time) from newest tweets; "
+                f"gap is older than X API floor ({api_floor.date()})."
             )
-            continue
-
-        api_gap_after = max(gap_after, api_floor)
-        print(
-            f"\n@{account} gap: {gap_after.date()} .. {gap_before.date()}\n"
-            f"  X API will paginate from {api_floor.date()} and filter into gap; "
-            f"posts before {api_floor.date()} need guest backfill."
-        )
-
-        window = FetchWindow(
-            after=api_floor,
-            before=ci_window.before,
-            window_days=ci_window.window_days,
-            api_start_time=True,
-        )
+            window = FetchWindow(
+                after=gap_after,
+                before=ci_window.before,
+                window_days=0,
+                api_start_time=False,
+            )
+        else:
+            print(
+                f"\n@{account} gap: {gap_after.date()} .. {gap_before.date()}\n"
+                f"  X API will paginate from {api_floor.date()} and filter into gap; "
+                f"posts before {api_floor.date()} need guest backfill."
+            )
+            window = FetchWindow(
+                after=api_floor,
+                before=ci_window.before,
+                window_days=ci_window.window_days,
+                api_start_time=True,
+            )
 
         stats = FetchStats()
         stats.x_auth_mode = fetcher.x_api.credentials.auth_mode()
@@ -169,7 +174,9 @@ def main() -> int:
         pages_since_flush = 0
         api_batch = 0
 
-        for exclude in X_API_TIMELINE_EXCLUDES or (None,):
+        exclude_passes = (None, *X_API_TIMELINE_EXCLUDES) if deep_pagination else X_API_TIMELINE_EXCLUDES or (None,)
+
+        for exclude in exclude_passes:
             exclude_label = exclude or "none"
             print(f"  API pass exclude={exclude_label}")
             pages_since_flush = 0
