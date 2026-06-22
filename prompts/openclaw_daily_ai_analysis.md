@@ -179,7 +179,7 @@ ORDER BY created_at DESC;
 - 用**理解**代替**匹配**：reasoning 必须引用推文中的具体表述或语境，不要写「命中 buy 关键词」。
 - 忽略纯转推、无投资信息的回复；若推文只有链接无观点，可不产出 signal。
 - 同帖多 ticker 必须拆成多行 signal，不要合并。
-- 不要读取或抄袭 GitHub Pages 上 stock-detect 的关键词统计结果；只基于 MySQL 原文独立分析。
+- 不要读取或抄袭旧 GitHub Pages 上的关键词统计结果；只基于 MySQL 原文独立分析。
 - 研究用途 disclaimer：summary 末尾加一句「仅供参考，非投资建议」。
 
 ## 失败处理
@@ -269,12 +269,12 @@ INSERT INTO stock_detect_ai_runs (
 
 ---
 
-## 与 GitHub Pages 报告的关系
+## 与 stock-detect 报告的关系
 
 | 来源 | 位置 | 写入方 |
 |------|------|--------|
 | 原始推文 | `stock_detect_x_posts` | stock-detect CI（X API + MySQL） |
-| 关键词 Signals（旧） | GitHub Pages JSON | stock-detect CI 内存计算 |
+| 关键词 Signals | GolangCalculateServer API（MySQL 实时分析） | `analyze_mysql_report.py` |
 | **AI Signals / Consensus / Top Tickers** | **MySQL AI 四表** | **OpenClaw 本任务** |
 
 后续若要在网页展示 AI 结果，需另加读取 `stock_detect_ai_*` 的 API 或 CI 步骤；当前 schema 仅为 AI 落库准备。
