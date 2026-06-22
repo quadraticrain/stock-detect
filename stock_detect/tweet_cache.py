@@ -20,6 +20,7 @@ from stock_detect.config import (
 )
 from stock_detect.fetch_window import FetchWindow
 from stock_detect.models import SocialPost, sort_posts_chronological
+from stock_detect.post_tickers import merge_ticker_lists, resolve_post_tickers, tickers_json
 from stock_detect.scan_marker import CI_MARKER_POST_PREFIX, ci_marker_for, ci_marker_post_id, ci_marker_text
 
 try:
@@ -399,6 +400,9 @@ class TweetCache:
             existing = self.existing_post_ids([p.id for p in unique_posts])
             to_insert = [p for p in unique_posts if p.id not in existing]
             skipped = len(unique_posts) - len(to_insert)
+            skipped_posts = [p for p in unique_posts if p.id in existing]
+            if skipped_posts:
+                self.refresh_post_tickers(skipped_posts)
         else:
             to_insert = unique_posts
             skipped = 0
@@ -429,7 +433,7 @@ class TweetCache:
                                 created,
                                 post.score,
                                 post.url,
-                                json.dumps(post.tickers),
+                                json.dumps(resolve_post_tickers(post)),
                                 post.source,
                                 now,
                             ]
@@ -444,6 +448,50 @@ class TweetCache:
                     )
                     inserted += cur.rowcount
         return inserted, skipped
+
+    def refresh_post_tickers(self, posts: list[SocialPost]) -> int:
+        """Merge X API / text tickers into existing rows (fills empty or adds new symbols)."""
+        if not posts:
+            return 0
+        updated = 0
+        with self._connection() as conn:
+            with conn.cursor() as cur:
+                for post in posts:
+                    if not post.id or post.source == "ci_marker":
+                        continue
+                    resolved = resolve_post_tickers(post)
+                    if not resolved:
+                        continue
+                    cur.execute(
+                        f"""
+                        SELECT tickers FROM {MYSQL_TABLE_POSTS}
+                        WHERE post_id = %s
+                        """,
+                        (post.id,),
+                    )
+                    row = cur.fetchone()
+                    if not row:
+                        continue
+                    existing_raw = row.get("tickers")
+                    existing: list[str] = []
+                    if existing_raw:
+                        if isinstance(existing_raw, str):
+                            existing = json.loads(existing_raw)
+                        elif isinstance(existing_raw, list):
+                            existing = existing_raw
+                    merged = merge_ticker_lists(existing, resolved)
+                    if merged == existing:
+                        continue
+                    cur.execute(
+                        f"""
+                        UPDATE {MYSQL_TABLE_POSTS}
+                        SET tickers = %s
+                        WHERE post_id = %s
+                        """,
+                        (tickers_json(merged), post.id),
+                    )
+                    updated += cur.rowcount
+        return updated
 
     def account_created_bounds(
         self,
