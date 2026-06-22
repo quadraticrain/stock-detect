@@ -71,6 +71,14 @@ DEFAULT_X_ACCOUNTS = [
     "aleabitoreddit",
 ]
 
+# GitHub Actions scheduled scan + OpenClaw AI analysis (comma-separated author slugs)
+CI_SCHEDULED_X_ACCOUNTS = (
+    "aleabitoreddit",
+    "elonmusk",
+    "SpeakerPelosi",
+)
+CI_SCHEDULED_X_ACCOUNTS_CSV = ",".join(CI_SCHEDULED_X_ACCOUNTS)
+
 # MySQL cache (investment_cache) — password via MYSQL_PASSWORD env / GitHub Secret only
 MYSQL_HOST = "rm-wz91qxav0rb3uxf17ro.mysql.cn-shenzhen.rds.aliyuncs.com"
 MYSQL_PORT = 3306
