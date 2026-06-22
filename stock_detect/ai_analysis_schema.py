@@ -50,6 +50,10 @@ AI_ANALYSIS_TABLES: tuple[_TableDef, ...] = (
             _ColumnDef("status", "VARCHAR(16) NOT NULL DEFAULT 'completed'"),
             _ColumnDef("summary", "TEXT NULL"),
             _ColumnDef("analyzed_at", "DATETIME(6) NOT NULL"),
+            _ColumnDef("resume_from_post_id", "VARCHAR(32) NULL"),
+            _ColumnDef("resume_from_created_at", "DATETIME(6) NULL"),
+            _ColumnDef("checkpoint_post_id", "VARCHAR(32) NULL"),
+            _ColumnDef("checkpoint_post_created_at", "DATETIME(6) NULL"),
         ),
         primary_key=("run_id",),
         indexes=(
