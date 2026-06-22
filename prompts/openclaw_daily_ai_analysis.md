@@ -3,13 +3,6 @@
 > **用途**：复制下方「系统 Prompt」与「用户 Prompt」到 OpenClaw。  
 > **职责**：从 MySQL **增量**读取 X 推文，做语义级舆情分析，写入 `stock_detect_ai_*` 四表，并**持久化断点**供下次续跑。  
 > **与关键词报告的区别**：GolangCalculateServer `/api/stock-detect/report` 使用死板词表；**本任务不使用那套规则**。
->
-> **v5 变更（2026-06-22，基于首次全量处理三账号数据的实证观察）**：
-> - 将「Ticker 识别」从单条规则扩展为**6 类映射 + 7 级态度**的完整框架
-> - 修正 elonmusk 规则过窄问题：SpaceX/xAI/Grok 不再「不映射」
-> **v5.2 变更（2026-06-22）**：定时账号由 `HillaryClinton` 换为 **`SpeakerPelosi`（佩洛西）**；与 GitHub Actions 每日抓取三位博主对齐：`aleabitoreddit`, `elonmusk`, `SpeakerPelosi`。
-> - **v5.1 修正（2026-06-22）**：SpaceX 已于 2026-06-12 在 NASDAQ IPO（代码 **SPCX**），xAI 并入 SpaceX；SpaceX/Starlink/xAI/Grok → **SPCX**（类型 B），并保留 TSLA 次要传导
-> - 新增「供应链语境映射」规则：提及 TSMC/台积电 → TSM，提及 hyperscaler 客户 → 对应 ticker 作为 context neutral
 
 ---
 
@@ -46,9 +39,9 @@
 
 ## 分析账号（默认全跑）
 
-| 账号 | 类型 | AI 分析要点（基于首次全量实证） |
+| 账号 | 类型 | AI 分析要点 |
 |------|------|-------------|
-| `aleabitoreddit` | 半导体/AI 基础设施投资博主 | 显式 `$TICKER` 为主（307/400 帖含 cashtag），评级直接（Strong Buy/Buy/Hold/Sell）。**主题篮子明显**：Neocloud（NBIS/CRWV/IREN/WULF/CIFR/BITF/WYFI）、InP 光子学瓶颈（AXTI/LITE/COHR/AAOI/POET/DOWA/SMTOY）、国防无人机（AIRO/OSS/AVAV）、委内瑞拉国家建设（GRZ/CVX/AVAV/ASHM/TRGP）、算力连结（ALAB/CRDO/MRVL/AVGO/TSM/MU/SMCI）。逐帖给评级时，对篮子内未点名的 ticker 也应给 neutral context 信号。 |
+| `aleabitoreddit` | 半导体/AI 基础设施投资博主 | 显式 `$TICKER` 为主，评级直接（Strong Buy/Buy/Hold/Sell）。**主题篮子明显**：Neocloud（NBIS/CRWV/IREN/WULF/CIFR/BITF/WYFI）、InP 光子学瓶颈（AXTI/LITE/COHR/AAOI/POET/DOWA/SMTOY）、国防无人机（AIRO/OSS/AVAV）、委内瑞拉国家建设（GRZ/CVX/AVAV/ASHM/TRGP）、算力连结（ALAB/CRDO/MRVL/AVGO/TSM/MU/SMCI）。逐帖给评级时，对篮子内未点名的 ticker 也应给 neutral context 信号。 |
 | `elonmusk` | 企业家（Tesla/SpaceX/xAI） | **0 条显式 $TICKER**，但推文高度聚焦其商业版图。**SpaceX 已于 2026-06-12 IPO（NASDAQ: SPCX），xAI 已并入 SpaceX**。因此 SpaceX/Starlink/xAI/Grok/Starship 提及应**直接映射 SPCX**（类型 B，confidence 0.5–0.65），同时给 TSLA 次要传导信号（confidence 0.4–0.5，Musk 财富集中效应）。Optimus/Neuralink 仍为未上市实体 → Type C 影响 TSLA。TSMC 作为客户/供应商 → TSM；BTC/DOGE 加密提及 → BTC/DOGE。 |
 | `SpeakerPelosi` | 政治人物（前众议院议长） | 少见显式 `$TICKER`，但推文常涉及**立法与行业政策**（芯片法案→NVDA/AMD/INTC/TSM/AVGO；清洁能源→ENPH/FSLR；医疗改革→UNH；Big Tech 监管→GOOGL/META/AAPL/AMZN）。**仅当明确指向具体行业/公司/法案影响**时映射，confidence ≤ 0.5；纯党派攻击、泛化「经济/债务/税」、社交活动不映射。勿根据国会披露交易传闻在推文无依据时臆造 signal。 |
 
@@ -123,8 +116,6 @@ LIMIT :batch_limit;
 
 ## Ticker 识别优先级（6 类映射，按强度递减）
 
-> 以下分类基于 2026-06-22 首次全量处理三账号 869 帖的实证观察。
-
 ### 类型 A：显式 cashtag（最强信号）
 正文含 `$TICKER`。直接取用，无需推断。
 - 例：aleabitoreddit「Bought $500K worth of $NBIS」→ NBIS
@@ -137,7 +128,7 @@ LIMIT :batch_limit;
 - **Starlink → SPCX**（SpaceX 子公司，未独立上市）
 - 此类映射需该公司确实公开上市。
 
-### 类型 C：未上市实体 → 影响传导映射（v5 新增，修正 elonmusk 过窄问题）
+### 类型 C：未上市实体 → 影响传导映射
 博主反复讨论的**未上市公司**，若通过以下路径**实质影响某公开 ticker 估值**，则映射为该 ticker 的信号（confidence 按传导衰减，通常 0.4–0.6）：
 
 | 未上市实体 | 传导路径 | 映射 ticker | 典型 confidence |
@@ -146,11 +137,11 @@ LIMIT :batch_limit;
 | Neuralink | 关联实体，弱传导 | TSLA（弱） | 0.35–0.45 |
 | The Boring Company | 关联性弱 | 不映射 | — |
 
-> **注意**：SpaceX/xAI/Starlink 已在 v5.1 升级为 Type B（直接映射 SPCX），不再走 Type C。但对于**同时讨论 SpaceX 与 Tesla 协同**的帖子（如 TERAFAB JV），除主信号 SPCX 外，也应给 TSLA 次要传导信号（confidence 0.4–0.5）。
+对于**同时讨论 SpaceX 与 Tesla 协同**的帖子（如 TERAFAB JV），除主信号 SPCX 外，也应给 TSLA 次要传导信号（confidence 0.4–0.5）。
 
 **判断标准**：该帖是否讨论了未上市实体与公开 ticker 的**业务协同、资产结构、或估值传导**。纯产品宣传也给 TSLA 信号，因为生态粘性利好。
 
-### 类型 D：行业主题 → 篮子映射（v5 新增）
+### 类型 D：行业主题 → 篮子映射
 博主反复讨论的**行业主题**，映射到该博主**历史帖中反复出现的同主题 ticker 篮子**。即使本帖只点了篮子内一只，其余篮子成员也给 neutral context 信号（confidence 0.4–0.5）。
 
 **已识别的主题篮子（aleabitoreddit 实证）**：
@@ -166,7 +157,7 @@ LIMIT :batch_limit;
 
 新主题随博主内容演进可动态扩展（在 summary 中标注新篮子）。
 
-### 类型 E：供应链语境映射（v5 新增）
+### 类型 E：供应链语境映射
 帖中提及某公司作为**客户/供应商/合作伙伴**，虽非主体，但构成 context 信号。
 - 例：aleabitoreddit 帖中 MSFT/GOOGL/META/AMZN 作为 Neocloud 客户 → 这四只各给 neutral 信号
 - 例：elonmusk 帖中 TSMC 作为 Tesla 客户关系 → TSM 信号（若讨论了供需）
@@ -179,11 +170,11 @@ LIMIT :batch_limit;
 
 ---
 
-## 态度 / 推荐分级（7 级，基于实证）
+## 态度 / 推荐分级（7 级）
 
 > recommendation 字段仍为 buy|hold|sell|neutral 四值，但 confidence 与 reasoning 应体现以下细分态度。
 
-| 态度 | recommendation | confidence 区间 | 识别特征（实证） |
+| 态度 | recommendation | confidence 区间 | 识别特征 |
 |------|---------------|----------------|-----------------|
 | **最高信念多头** | buy | 0.75–0.9 | "highest conviction", "Strong Buy", "screaming buy", "once-in-a-decade", 自述大额持仓+目标价 |
 | **战术性买入** | buy | 0.6–0.75 | "dip buy", "Fire Sale", 具体行权价/止损位，波段交易教学 |
@@ -272,7 +263,7 @@ LIMIT :batch_limit;
 
 ---
 
-## stock_detect_ai_runs 断点字段（v4 schema）
+## stock_detect_ai_runs 断点字段
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
