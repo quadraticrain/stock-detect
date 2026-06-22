@@ -109,7 +109,40 @@ OpenClaw 定时配置（详见 `prompts/openclaw_daily_ai_analysis.md`）：
 
 定时任务会自动读断点续跑。`mingchikuo` 首次接入后从 MySQL 缓存最早帖开始增量分析。
 
-## 六、文件清单
+## 六、移除账号的 MySQL 清理
+
+从定时 CI / OpenClaw 账号列表移除某博主后，应同步清理 MySQL，避免残留推文与 `fetch_state` 干扰统计。
+
+**工具**：`scripts/purge_account.py`（删除 `stock_detect_x_posts`、`stock_detect_x_fetch_state`、该账号全部 `stock_detect_ai_*` 行）
+
+```bash
+# 预览将删除的行数
+.venv/bin/python scripts/purge_account.py --account SpeakerPelosi --dry-run
+
+# 确认后执行（会要求输入账号名，或加 --yes 跳过确认）
+.venv/bin/python scripts/purge_account.py --account BofA_News --yes
+```
+
+**本项目已移除的账号**（2026-06-22，均已手动 purge）：
+
+| 账号 | 移除原因 |
+|------|----------|
+| `HillaryClinton` | 换为佩洛西，后佩洛西亦移除 |
+| `SpeakerPelosi` | 换为机构账号列表 |
+| `BofA_News` | 180 天仅 1 帖 |
+| `SEMIglobal` | 180 天仅 1 帖 |
+| `Gartner_inc` | 近一年无新帖 |
+
+清理后可用 SQL 验证：
+
+```sql
+SELECT author, COUNT(*) FROM stock_detect_x_posts
+WHERE LOWER(author) IN ('hillaryclinton','speakerpelosi','bofa_news','semiglobal','gartner_inc')
+GROUP BY author;
+-- 应无结果
+```
+
+## 七、文件清单
 
 | 文件 | 用途 |
 |------|------|
@@ -117,5 +150,7 @@ OpenClaw 定时配置（详见 `prompts/openclaw_daily_ai_analysis.md`）：
 | `scripts/gen_alea_run.py` | aleabitoreddit 语义判断承载脚本 |
 | `scripts/gen_elon_run.py` | elonmusk 语义判断承载脚本 |
 | `scripts/purge_account.py` | 从 MySQL 删除指定账号的推文缓存与 AI 分析数据 |
+| `scripts/sequential_fetch_180d.sh` | 依次触发 workflow_dispatch 180 天抓取（每账号等上一个完成） |
+| `scripts/resume_fetch_chain.sh` | 从指定 run 或账号列表续跑 180 天抓取 |
 | `AI_ANALYSIS_TOOLING.md` | 本文档 |
 | `prompts/openclaw_daily_ai_analysis.md` | OpenClaw 定时任务 prompt 规范（既有） |
