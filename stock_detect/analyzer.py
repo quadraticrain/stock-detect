@@ -6,7 +6,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 
-from stock_detect.config import DEFAULT_X_ACCOUNTS, MAX_FETCH_POSTS
+from stock_detect.config import DEFAULT_X_ACCOUNTS, MAX_FETCH_PAGES, MAX_FETCH_POSTS
 from stock_detect.fetch_window import FetchStats, FetchWindow, default_fetch_window
 from stock_detect.market_data import fetch_sp500_tickers
 from stock_detect.models import SocialPost
@@ -83,6 +83,8 @@ class SignalAnalyzer:
         *,
         source: str = "x",
         limit: int = 500,
+        max_pages: int = MAX_FETCH_PAGES,
+        window_days: int | None = None,
         sort: str = "new",
         use_proximity: bool = False,
         posts: list[SocialPost] | None = None,
@@ -91,7 +93,11 @@ class SignalAnalyzer:
         all_cashtags: bool = True,
         sp500_only: bool = False,
     ) -> AnalysisReport:
-        fetch_window = default_fetch_window(before=before)
+        fetch_window = (
+            default_fetch_window(before=before, window_days=window_days)
+            if window_days is not None
+            else default_fetch_window(before=before)
+        )
         if after is not None:
             fetch_window = FetchWindow(
                 after=after if after.tzinfo else after.replace(tzinfo=timezone.utc),
@@ -104,6 +110,7 @@ class SignalAnalyzer:
             posts, fetch_stats = self._fetch(
                 source,
                 limit=limit,
+                max_pages=max_pages,
                 sort=sort,
                 window=fetch_window,
             )
@@ -171,16 +178,18 @@ class SignalAnalyzer:
         source: str,
         *,
         limit: int,
+        max_pages: int,
         sort: str,
         window: FetchWindow,
     ) -> tuple[list[SocialPost], FetchStats]:
-        max_posts = min(limit or MAX_FETCH_POSTS, MAX_FETCH_POSTS)
+        max_posts = limit if limit else MAX_FETCH_POSTS
         stats = FetchStats()
 
         if source == "x":
             posts = self.twitter.fetch_accounts(
                 self.x_accounts,
                 window=window,
+                max_pages=max_pages,
                 max_posts=max_posts,
             )
             stats = self.twitter.last_stats
@@ -197,6 +206,7 @@ class SignalAnalyzer:
             x_posts = self.twitter.fetch_accounts(
                 self.x_accounts,
                 window=window,
+                max_pages=max_pages,
                 max_posts=x_cap,
             )
             wsb_posts = [

@@ -11,6 +11,13 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from stock_detect.analyzer import SignalAnalyzer  # noqa: E402
+from stock_detect.config import (  # noqa: E402
+    EXTENDED_MAX_FETCH_PAGES,
+    EXTENDED_MAX_FETCH_POSTS,
+    FETCH_WINDOW_DAYS,
+    MAX_FETCH_PAGES,
+    MAX_FETCH_POSTS,
+)
 from stock_detect.env import bootstrap  # noqa: E402
 from stock_detect.report import refresh_site, write_site  # noqa: E402
 
@@ -22,17 +29,39 @@ def main() -> int:
     parser.add_argument("--merge-from", help="Existing gh-pages dir to preserve history")
     parser.add_argument("--source", choices=["x", "wsb", "both"], default="x")
     parser.add_argument("--accounts", default="aleabitoreddit")
-    parser.add_argument("--limit", type=int, default=4000, help="Max posts to fetch/analyze")
+    parser.add_argument(
+        "--window-days",
+        type=int,
+        default=FETCH_WINDOW_DAYS,
+        help="Lookback window in days (X API covers ~63; older uses guest backfill)",
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=MAX_FETCH_POSTS,
+        help="Max posts to fetch/analyze per run",
+    )
+    parser.add_argument(
+        "--max-pages",
+        type=int,
+        default=MAX_FETCH_PAGES,
+        help="Max API/guest pages per account",
+    )
     args = parser.parse_args()
 
     accounts = [a.strip().lstrip("@") for a in args.accounts.split(",") if a.strip()]
     merge_path = Path(args.merge_from) if args.merge_from else None
 
+    max_posts = min(args.limit, EXTENDED_MAX_FETCH_POSTS)
+    max_pages = min(args.max_pages, EXTENDED_MAX_FETCH_PAGES)
+
     try:
         analyzer = SignalAnalyzer(x_accounts=accounts)
         report = analyzer.analyze(
             source=args.source,
-            limit=args.limit,
+            limit=max_posts,
+            max_pages=max_pages,
+            window_days=args.window_days,
         )
         out = write_site(
             args.output,

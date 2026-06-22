@@ -4,6 +4,27 @@ on:
   schedule:
     - cron: "0 1 * * *"   # daily 09:00 Beijing (UTC+8) = 01:00 UTC
   workflow_dispatch:
+    inputs:
+      accounts:
+        description: "X accounts (comma-separated, e.g. elonmusk)"
+        required: false
+        default: "aleabitoreddit"
+        type: string
+      window_days:
+        description: "Lookback window in days (X API ~63; older via guest backfill)"
+        required: false
+        default: "63"
+        type: string
+      max_posts:
+        description: "Max posts to fetch per account"
+        required: false
+        default: "4000"
+        type: string
+      max_pages:
+        description: "Max API/guest pages per account"
+        required: false
+        default: "40"
+        type: string
 
 permissions:
   contents: write
@@ -15,7 +36,7 @@ concurrency:
 jobs:
   scan-and-deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
@@ -46,7 +67,18 @@ jobs:
             --output site \
             --merge-from gh-pages-prev \
             --source x \
-            --accounts aleabitoreddit
+            --accounts "${{ github.event.inputs.accounts || 'aleabitoreddit' }}" \
+            --window-days "${{ github.event.inputs.window_days || '63' }}" \
+            --limit "${{ github.event.inputs.max_posts || '4000' }}" \
+            --max-pages "${{ github.event.inputs.max_pages || '40' }}"
+
+      - name: MySQL coverage report
+        env:
+          MYSQL_PASSWORD: ${{ secrets.MYSQL_PASSWORD }}
+        run: |
+          python scripts/mysql_coverage.py \
+            --accounts "${{ github.event.inputs.accounts || 'aleabitoreddit' }}" \
+            --window-days "${{ github.event.inputs.window_days || '63' }}"
 
       - name: Deploy to gh-pages
         uses: peaceiris/actions-gh-pages@v4
