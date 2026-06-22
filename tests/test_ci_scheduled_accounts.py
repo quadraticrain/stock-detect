@@ -11,11 +11,18 @@ class CiScheduledAccountsTests(unittest.TestCase):
     def test_scheduled_accounts(self):
         self.assertEqual(
             CI_SCHEDULED_X_ACCOUNTS,
-            ("aleabitoreddit", "elonmusk", "SpeakerPelosi"),
+            (
+                "aleabitoreddit",
+                "elonmusk",
+                "BofA_News",
+                "mingchikuo",
+                "SEMIglobal",
+                "Gartner_inc",
+            ),
         )
         self.assertEqual(
             CI_SCHEDULED_X_ACCOUNTS_CSV,
-            "aleabitoreddit,elonmusk,SpeakerPelosi",
+            "aleabitoreddit,elonmusk,BofA_News,mingchikuo,SEMIglobal,Gartner_inc",
         )
 
 
