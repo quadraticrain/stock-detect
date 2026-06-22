@@ -4,7 +4,9 @@
 > **职责**：从 MySQL **增量**读取 X 推文，做语义级舆情分析，写入 `stock_detect_ai_*` 四表，并**持久化断点**供下次续跑。  
 > **与关键词报告的区别**：GolangCalculateServer `/api/stock-detect/report` 使用死板词表；**本任务不使用那套规则**。
 >
-> **v5.3 变更**：定时账号移除 `SpeakerPelosi`；新增 `BofA_News`, `mingchikuo`, `SEMIglobal`, `Gartner_inc`（与 GitHub Actions 每日抓取对齐）。
+> **v5.5 变更**：移除 `Gartner_inc`（近一年无新帖）；定时账号为 3 位：`aleabitoreddit`, `elonmusk`, `mingchikuo`。
+> **v5.4 变更**：移除 `BofA_News`、`SEMIglobal`（发帖量过低，无分析价值）；定时账号与 CI 对齐为 4 位。
+> **v5.3 变更**：定时账号移除 `SpeakerPelosi`；新增 `mingchikuo`, `Gartner_inc` 等（与 GitHub Actions 每日抓取对齐）。
 
 ---
 
@@ -45,10 +47,7 @@
 |------|------|-------------|
 | `aleabitoreddit` | 半导体/AI 基础设施投资博主 | 显式 `$TICKER` 为主，评级直接（Strong Buy/Buy/Hold/Sell）。**主题篮子明显**：Neocloud（NBIS/CRWV/IREN/WULF/CIFR/BITF/WYFI）、InP 光子学瓶颈（AXTI/LITE/COHR/AAOI/POET/DOWA/SMTOY）、国防无人机（AIRO/OSS/AVAV）、委内瑞拉国家建设（GRZ/CVX/AVAV/ASHM/TRGP）、算力连结（ALAB/CRDO/MRVL/AVGO/TSM/MU/SMCI）。逐帖给评级时，对篮子内未点名的 ticker 也应给 neutral context 信号。 |
 | `elonmusk` | 企业家（Tesla/SpaceX/xAI） | **少见显式 $TICKER**，但推文高度聚焦其商业版图。**SpaceX 已于 2026-06-12 IPO（NASDAQ: SPCX），xAI 已并入 SpaceX**。因此 SpaceX/Starlink/xAI/Grok/Starship 提及应**直接映射 SPCX**（类型 B，confidence 0.5–0.65），同时给 TSLA 次要传导信号（confidence 0.4–0.5，Musk 财富集中效应）。Optimus/Neuralink 仍为未上市实体 → Type C 影响 TSLA。TSMC 作为客户/供应商 → TSM；BTC/DOGE 加密提及 → BTC/DOGE。 |
-| `BofA_News` | 美银官方资讯/研究 | 投行宏观、行业研报摘要；常见 `$TICKER` 或公司名。**优先 tickers JSON + 正文 cashtag**；评级用语（Overweight/Underweight/Buy/Sell）映射 buy/sell/hold；纯市场评论无具体标的 → neutral 或不产出。 |
 | `mingchikuo` | 苹果供应链分析师（郭明錤） | 聚焦 **AAPL** 及供应链（TSM、QCOM、立讯/鸿海语境→相关美股 ADR 或明确美股 ticker）。产品周期、出货量、零部件升级 → 对 AAPL 及点名供应商给 buy/hold/sell；未点名公司不臆造。 |
-| `SEMIglobal` | 半导体产业协会（SEMI） | 设备/材料/晶圆出货、行业数据、展会新闻。提及公司或细分（EUV、HBM、wafer fab）→ 映射 AMAT/LRCX/KLAC/ASML/TSM/NVDA 等；纯行业统计无公司指向 → sector neutral 或不产出。 |
-| `Gartner_inc` | IT 研究与咨询 | Magic Quadrant、企业科技趋势、云/AI 支出。点名厂商（Microsoft、Salesforce、AWS 语境）→ MSFT/CRM/AMZN/GOOGL/ORCL 等；泛化「digital transformation」无标的 → neutral。 |
 
 ---
 
@@ -170,7 +169,7 @@ LIMIT :batch_limit;
 ### 类型 F：不映射（明确排除）
 - 泛用词作为动词/名词：job, tax, dollar, invest, profit（非公司名）
 - 个人生活、节日、纯社交互动
-- 机构通稿/行业数据无具体公司指向的（SEMI/Gartner 部分帖）
+- 机构通稿/行业数据无具体公司指向的
 - 产品名与公司名碰撞（如 "dow" 指无人机而非 DOW 化工）
 
 ---
@@ -189,7 +188,7 @@ LIMIT :batch_limit;
 | **结构性看空** | sell | 0.6–0.7 | "huge warning", "debt trap", 重大风险事件（如 CRCL 解禁、IQEPF 在卖公司） |
 | **中性/语境** | neutral | 0.35–0.5 | 仅作为对比、客户、供应商提及；产品宣传无明确利好；政治泛指 |
 
-**BofA_News / mingchikuo / SEMIglobal / Gartner_inc 校准**：以**正文点名公司或 $TICKER** 为主；机构研报语气（Overweight、Magic Quadrant Leader、出货 YoY）可映射 buy/hold；纯品牌宣传、活动邀请、无标的宏观一句带过 → neutral 或不产出。mingchikuo 供应链帖必须同时评估 **AAPL** 与文中点名的供应商 ticker。
+**mingchikuo 校准**：以**正文点名公司或 $TICKER** 为主；供应链帖必须同时评估 **AAPL** 与文中点名的供应商 ticker；无明确标的 → neutral 或不产出。
 
 **elonmusk 专属校准**：因少 explicit buy，其信号 confidence 整体下调 0.1。SpaceX/Starlink/xAI 提及 → SPCX 主信号（confidence 0.5–0.65）+ TSLA 传导次信号（0.4–0.5）。明确产品/技术里程碑（如「AI5 taped out」「TERAFAB announcement」「Robotaxi 上线」）才给 TSLA buy 0.55–0.65；纯愿景（「Optimus 将成冯诺依曼探测器」）给 TSLA buy 0.5–0.55；纯社交/表情回应给 neutral 0.4。
 
@@ -199,7 +198,7 @@ LIMIT :batch_limit;
 
 - recommendation: buy | hold | sell | neutral
 - consensus_signal: buy | sell | neutral
-- prompt_version: 固定 `openclaw-v5.3`
+- prompt_version: 固定 `openclaw-v5.5`
 
 ## 硬性规则
 
@@ -229,13 +228,13 @@ LIMIT :batch_limit;
 ## 用户 Prompt（User，每次定时触发）
 
 ```
-执行 stock-detect 每日 AI 舆情分析（openclaw-v5.3，增量断点续跑）。
+执行 stock-detect 每日 AI 舆情分析（openclaw-v5.5，增量断点续跑）。
 
-- 账号列表：aleabitoreddit, elonmusk, BofA_News, mingchikuo, SEMIglobal, Gartner_inc
+- 账号列表：aleabitoreddit, elonmusk, mingchikuo
 - mode：incremental（默认；仅当用户显式要求 replay 时才 full）
 - batch_limit：400（每账号每批最多处理帖数）
 - 当前 UTC：{{NOW_UTC}}
-- prompt_version：openclaw-v5.3
+- prompt_version：openclaw-v5.5
 - 分析规则：见「Ticker 识别优先级（6 类映射）」与「态度分级（7 级）」；尤其注意 elonmusk 的 SpaceX/xAI/Starlink → **SPCX** 直接映射（SpaceX 已于 2026-06-12 IPO），同时给 TSLA 次要传导信号
 
 对每个账号依次：
@@ -246,7 +245,7 @@ LIMIT :batch_limit;
 
 完成后返回：
 {
-  "prompt_version": "openclaw-v5.3",
+  "prompt_version": "openclaw-v5.5",
   "accounts": [
     {
       "account": "aleabitoreddit",

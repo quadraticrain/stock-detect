@@ -16,7 +16,7 @@
 
 断点机制：启动读上次 `checkpoint_*` → 只处理断点之后且未分析过的 `post_id` → 结束写新 `checkpoint_*`。排序键 `(created_at ASC, post_id ASC)` 保证断点可复现。
 
-**定时账号（与 GitHub Actions `scan-mysql.yml` 一致）**：`aleabitoreddit`, `elonmusk`, `BofA_News`, `mingchikuo`, `SEMIglobal`, `Gartner_inc`。
+**定时账号（与 GitHub Actions `scan-mysql.yml` 一致）**：`aleabitoreddit`, `elonmusk`, `mingchikuo`。
 
 ## 二、工具脚本
 
@@ -68,7 +68,7 @@
 **判断原则**：
 - **aleabitoreddit**：半导体/AI 供应链分析师，推文含大量 $TICKER。逐帖识别 ticker（优先 `tickers` JSON 列，其次正文 `$TICKER`），按作者明确评级（Strong Buy/Buy/Hold/Sell）或语义判断映射 recommendation。
 - **elonmusk**：少见显式 $TICKER；SpaceX/xAI/Starlink → SPCX，Tesla 语境 → TSLA，见 openclaw-v5.1。
-- **BofA_News / mingchikuo / SEMIglobal / Gartner_inc**：见 `prompts/openclaw_daily_ai_analysis.md` v5.3 各账号要点；以正文点名公司或 `$TICKER` 为主。
+- **mingchikuo**：见 `prompts/openclaw_daily_ai_analysis.md` v5.5；以正文点名公司或 `$TICKER` 为主，供应链语境评估 AAPL。
 
 **reasoning 为中文**，引用原文关键词；summary 末尾均带「仅供参考，非投资建议」。
 
@@ -107,7 +107,7 @@ OpenClaw 定时配置（详见 `prompts/openclaw_daily_ai_analysis.md`）：
 | 环境变量 | `MYSQL_PASSWORD`（必填） |
 | 单批上限 | 400 帖/账号/次 |
 
-定时任务会自动读断点续跑。新增账号（BofA_News、mingchikuo、SEMIglobal、Gartner_inc）首次接入后从 MySQL 缓存最早帖开始增量分析。
+定时任务会自动读断点续跑。`mingchikuo` 首次接入后从 MySQL 缓存最早帖开始增量分析。
 
 ## 六、文件清单
 
