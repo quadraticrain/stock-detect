@@ -22,6 +22,7 @@ from stock_detect.config import (
     SINGLE_CHAR_TICKERS,
 )
 from stock_detect.models import SocialPost
+from stock_detect.post_tickers import resolve_post_tickers
 
 
 @dataclass
@@ -214,7 +215,7 @@ def extract_social_post_signals(
         valid_tickers,
         source=post.source,
         author=post.author,
-        known_tickers=post.tickers if post.source == "x" else None,
+        known_tickers=resolve_post_tickers(post) if post.source == "x" else None,
         all_cashtags=all_cashtags or post.source == "x",
         use_proximity=use_proximity,
     )
