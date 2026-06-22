@@ -71,6 +71,16 @@ MYSQL_USER = "cache_data_write"
 MYSQL_SERVICE = "stock_detect"
 MYSQL_TABLE_POSTS = f"{MYSQL_SERVICE}_x_posts"
 MYSQL_TABLE_STATE = f"{MYSQL_SERVICE}_x_fetch_state"
+# AI analysis output (written by OpenClaw / external scheduler — not by stock-detect scan code)
+MYSQL_TABLE_AI_RUNS = f"{MYSQL_SERVICE}_ai_runs"
+MYSQL_TABLE_AI_SIGNALS = f"{MYSQL_SERVICE}_ai_signals"
+MYSQL_TABLE_AI_CONSENSUS = f"{MYSQL_SERVICE}_ai_consensus"
+MYSQL_TABLE_AI_TOP_TICKERS = f"{MYSQL_SERVICE}_ai_top_tickers"
+
+# OpenClaw AI analysis schedule — daily 13:00 Beijing (Asia/Shanghai)
+AI_ANALYSIS_TIMEZONE = "Asia/Shanghai"
+AI_ANALYSIS_CRON_BEIJING = "0 13 * * *"   # 13:00 every day, use with timezone above
+AI_ANALYSIS_CRON_UTC = "0 5 * * *"        # equivalent when scheduler runs in UTC
 
 # X API timeline: exclude retweets only (includes replies + originals; single pass)
 X_API_TIMELINE_EXCLUDES = ("retweets",)

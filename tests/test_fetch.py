@@ -128,30 +128,32 @@ class TwitterFetcherTests(unittest.TestCase):
         cache.get_state = MagicMock(
             return_value=MagicMock(user_id="999", last_tweet_id="900")
         )
-        cache.upsert_posts = MagicMock(return_value=1)
+        cache.insert_posts_batch = MagicMock(return_value=(1, 0))
         cache.save_state = MagicMock()
-        cache.prune_before = MagicMock(return_value=0)
 
         gap_calls: list[FetchWindow] = []
-        incremental_calls: list[str | None] = []
+        incremental_since: list[str | None] = []
 
-        def fake_timeline(
+        def fake_persist(
             _screen_name,
             *,
             window,
             max_pages,
             max_posts,
             stats,
+            cache,
+            user_id,
             since_id=None,
-            user_id=None,
+            advance_state=False,
+            stop_when_all_duplicates=False,
         ):
             if since_id:
-                incremental_calls.append(since_id)
-                return []
+                incremental_since.append(since_id)
+                return 0
             gap_calls.append(window)
-            return [gap_post]
+            return 1
 
-        fetcher.x_api.fetch_user_timeline = MagicMock(side_effect=fake_timeline)  # type: ignore[method-assign]
+        fetcher._fetch_and_persist_api_pages = MagicMock(side_effect=fake_persist)  # type: ignore[method-assign]
         fetcher.x_api.credentials.auth_mode = MagicMock(return_value="oauth2_bearer")  # type: ignore[method-assign]
 
         posts = fetcher._fetch_account_cached(
@@ -166,9 +168,9 @@ class TwitterFetcherTests(unittest.TestCase):
         self.assertEqual(len(gap_calls), 1)
         self.assertEqual(gap_calls[0].after, window.after)
         self.assertEqual(gap_calls[0].before, cached_recent.created)
-        self.assertEqual(incremental_calls, ["900"])
+        self.assertEqual(incremental_since, ["900"])
         self.assertEqual({p.id for p in posts}, {"100", "900"})
-        fetcher.x_api.fetch_user_timeline.assert_called()
+        self.assertEqual(fetcher._fetch_and_persist_api_pages.call_count, 2)
 
 
 if __name__ == "__main__":
