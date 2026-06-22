@@ -42,6 +42,7 @@ class FetchWindow:
     after: datetime
     before: datetime
     window_days: int = FETCH_WINDOW_DAYS
+    api_start_time: bool = True
 
     def contains(self, moment: datetime) -> bool:
         if moment.tzinfo is None:

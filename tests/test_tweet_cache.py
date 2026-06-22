@@ -41,6 +41,58 @@ class TweetCacheTests(unittest.TestCase):
         self.assertIn("INSERT IGNORE", sql)
 
     @patch("stock_detect.tweet_cache.pymysql.connect")
+    def test_existing_post_ids_batch(self, mock_connect):
+        conn = MagicMock()
+        cursor = MagicMock()
+        cursor.fetchall.return_value = [{"post_id": "100"}]
+        conn.cursor.return_value.__enter__.return_value = cursor
+        mock_connect.return_value = conn
+
+        cache = TweetCache(password="secret")
+        found = cache.existing_post_ids(["100", "200"])
+
+        self.assertEqual(found, {"100"})
+        sql = cursor.execute.call_args[0][0]
+        self.assertIn("post_id IN", sql)
+
+    @patch("stock_detect.tweet_cache.pymysql.connect")
+    def test_insert_posts_batch_skips_existing(self, mock_connect):
+        conn = MagicMock()
+        cursor = MagicMock()
+        cursor.fetchall.side_effect = [[{"post_id": "100"}], []]
+        cursor.rowcount = 1
+        conn.cursor.return_value.__enter__.return_value = cursor
+        mock_connect.return_value = conn
+
+        cache = TweetCache(password="secret")
+        posts = [self._sample_post("100"), self._sample_post("200")]
+        inserted, skipped = cache.insert_posts_batch(posts, skip_existing=True)
+
+        self.assertEqual(inserted, 1)
+        self.assertEqual(skipped, 1)
+
+    @patch("stock_detect.tweet_cache.pymysql.connect")
+    def test_detect_ci_gap_window(self, mock_connect):
+        conn = MagicMock()
+        cursor = MagicMock()
+        cursor.fetchone.side_effect = [
+            {"min_created": None, "max_created": datetime(2026, 2, 23, 12, 0, 0)},
+            {"min_created": datetime(2026, 4, 20, 8, 0, 0), "max_created": None},
+        ]
+        conn.cursor.return_value.__enter__.return_value = cursor
+        mock_connect.return_value = conn
+
+        cache = TweetCache(password="secret")
+        gap = cache.detect_ci_gap_window(
+            "demo",
+            datetime(2026, 4, 20, tzinfo=timezone.utc),
+        )
+        self.assertIsNotNone(gap)
+        assert gap is not None
+        self.assertEqual(gap[0].date(), datetime(2026, 2, 23).date())
+        self.assertEqual(gap[1].date(), datetime(2026, 4, 20).date())
+
+    @patch("stock_detect.tweet_cache.pymysql.connect")
     def test_list_posts_maps_rows(self, mock_connect):
         conn = MagicMock()
         cursor = MagicMock()

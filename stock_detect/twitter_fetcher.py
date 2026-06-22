@@ -20,6 +20,7 @@ from stock_detect.config import (
     MAX_FETCH_POSTS,
     REQUEST_DELAY_SEC,
     USER_AGENT,
+    X_API_TIMELINE_EXCLUDES,
 )
 from stock_detect.fetch_window import (
     FetchStats,
@@ -165,6 +166,78 @@ class TwitterFetcher:
             stats=stats,
         )
 
+    @staticmethod
+    def _advance_fetch_state(
+        cache: TweetCache,
+        account: str,
+        *,
+        user_id: str | None,
+        posts: list[SocialPost],
+        last_tweet_id: str | None,
+    ) -> str | None:
+        newest = TweetCache.newest_tweet_id(posts)
+        if not newest:
+            return last_tweet_id
+        if last_tweet_id and int(newest) <= int(last_tweet_id):
+            return last_tweet_id
+        cache.save_state(account, user_id=user_id, last_tweet_id=newest)
+        return newest
+
+    def _fetch_and_persist_api_pages(
+        self,
+        screen_name: str,
+        *,
+        window: FetchWindow,
+        max_pages: int,
+        max_posts: int,
+        stats: FetchStats,
+        cache: TweetCache,
+        user_id: str | None,
+        since_id: str | None = None,
+        advance_state: bool = False,
+        stop_when_all_duplicates: bool = False,
+    ) -> int:
+        """Fetch one API page at a time, dedupe-check MySQL, and insert immediately."""
+        total_inserted = 0
+        posts_seen = 0
+        last_tweet_id = since_id
+
+        for exclude in X_API_TIMELINE_EXCLUDES or (None,):
+            for page in self.x_api.iter_timeline_pages(
+                screen_name,
+                window=window,
+                max_pages=max_pages,
+                max_posts=max(max_posts - posts_seen, 0),
+                stats=stats,
+                since_id=since_id,
+                user_id=user_id,
+                exclude=exclude,
+            ):
+                if not page:
+                    continue
+                if posts_seen + len(page) > max_posts:
+                    page = page[: max_posts - posts_seen]
+
+                inserted, skipped = cache.insert_posts_batch(page, skip_existing=True)
+                total_inserted += inserted
+                posts_seen += len(page)
+
+                if advance_state:
+                    last_tweet_id = self._advance_fetch_state(
+                        cache,
+                        screen_name,
+                        user_id=user_id,
+                        posts=page,
+                        last_tweet_id=last_tweet_id,
+                    )
+
+                if stop_when_all_duplicates and inserted == 0 and skipped == len(page):
+                    return total_inserted
+                if posts_seen >= max_posts:
+                    return total_inserted
+
+        return total_inserted
+
     def _fetch_account_cached(
         self,
         screen_name: str,
@@ -194,52 +267,49 @@ class TwitterFetcher:
                 if user_id:
                     cache.save_state(screen_name, user_id=user_id)
 
-            api_posts_by_id: dict[str, SocialPost] = {}
+            api_inserted = 0
             gap = gap_window_before(window, oldest_cached) if oldest_cached else None
 
             if gap is not None:
-                for post in self.x_api.fetch_user_timeline(
+                api_inserted += self._fetch_and_persist_api_pages(
                     screen_name,
                     window=gap,
                     max_pages=min(max_pages, FULL_FETCH_MAX_PAGES),
                     max_posts=max_posts,
                     stats=stats,
-                    since_id=None,
+                    cache=cache,
                     user_id=user_id,
-                ):
-                    api_posts_by_id.setdefault(post.id, post)
+                    since_id=None,
+                    advance_state=False,
+                )
             elif not cached:
-                for post in self.x_api.fetch_user_timeline(
+                api_inserted += self._fetch_and_persist_api_pages(
                     screen_name,
                     window=window,
                     max_pages=min(max_pages, FULL_FETCH_MAX_PAGES),
                     max_posts=max_posts,
                     stats=stats,
-                    since_id=None,
+                    cache=cache,
                     user_id=user_id,
-                ):
-                    api_posts_by_id.setdefault(post.id, post)
+                    since_id=None,
+                    advance_state=True,
+                )
 
             if cached and since_id:
-                for post in self.x_api.fetch_user_timeline(
+                api_inserted += self._fetch_and_persist_api_pages(
                     screen_name,
                     window=window,
                     max_pages=INCREMENTAL_MAX_PAGES,
                     max_posts=max_posts,
                     stats=stats,
+                    cache=cache,
+                    user_id=user_id,
                     since_id=since_id,
-                    user_id=user_id,
-                ):
-                    api_posts_by_id.setdefault(post.id, post)
-
-            if api_posts_by_id:
-                stats.api_posts_new = cache.upsert_posts(list(api_posts_by_id.values()))
-                newest = TweetCache.newest_tweet_id(cached + list(api_posts_by_id.values()))
-                cache.save_state(
-                    screen_name,
-                    user_id=user_id,
-                    last_tweet_id=newest,
+                    advance_state=True,
+                    stop_when_all_duplicates=True,
                 )
+
+            stats.api_posts_new = api_inserted
             stats.streams_used.append("XApiV2")
 
         if not cache.list_posts(screen_name, window):
@@ -251,12 +321,16 @@ class TwitterFetcher:
                 stats=stats,
             )
             if guest_posts:
-                inserted = cache.upsert_posts(guest_posts)
+                inserted, _ = cache.insert_posts_batch(guest_posts, skip_existing=True)
                 stats.api_posts_new += inserted
-                newest = TweetCache.newest_tweet_id(guest_posts)
-                cache.save_state(screen_name, last_tweet_id=newest)
+                self._advance_fetch_state(
+                    cache,
+                    screen_name,
+                    user_id=user_id,
+                    posts=guest_posts,
+                    last_tweet_id=since_id,
+                )
 
-        cache.prune_before(screen_name, window.after)
         posts = cache.list_posts(screen_name, window)
         stats.cache_posts = len(posts)
         return posts[:max_posts]
@@ -297,6 +371,38 @@ class TwitterFetcher:
             posts_by_id.setdefault(post.id, post)
 
         return list(posts_by_id.values())[:max_posts]
+
+    def fetch_guest_history(
+        self,
+        screen_name: str,
+        *,
+        before: datetime,
+        after: datetime | None = None,
+        max_pages: int = MAX_FETCH_PAGES,
+        max_posts: int = MAX_FETCH_POSTS,
+    ) -> tuple[list[SocialPost], FetchStats]:
+        """Fetch older posts via guest/syndication APIs (no OAuth, no X API billing).
+
+        Typical use: backfill tweets **older than** the 63-day CI window — set
+        ``before`` to ``default_fetch_window().after``.
+        """
+        if before.tzinfo is None:
+            before = before.replace(tzinfo=timezone.utc)
+        start = after or datetime(2006, 3, 21, tzinfo=timezone.utc)
+        if start.tzinfo is None:
+            start = start.replace(tzinfo=timezone.utc)
+        window = FetchWindow(after=start, before=before, window_days=0)
+        stats = FetchStats()
+        posts = self._fetch_guest_sources(
+            screen_name.lstrip("@").lower(),
+            window=window,
+            max_pages=max_pages,
+            max_posts=max_posts,
+            stats=stats,
+        )
+        posts.sort(key=lambda p: p.created, reverse=True)
+        self.last_stats = stats
+        return posts, stats
 
     def _fetch_guest_sources(
         self,

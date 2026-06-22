@@ -6,9 +6,10 @@ import json
 import os
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Iterator
 
+from stock_detect.ai_analysis_schema import AI_ANALYSIS_TABLES
 from stock_detect.config import (
     MYSQL_DATABASE,
     MYSQL_HOST,
@@ -77,7 +78,7 @@ _TABLES: tuple[_TableDef, ...] = (
         ),
         primary_key=("account",),
     ),
-)
+) + AI_ANALYSIS_TABLES
 
 
 @dataclass
@@ -264,36 +265,153 @@ class TweetCache:
                     (account, user_id, last_tweet_id, now.replace(tzinfo=None)),
                 )
 
-    def upsert_posts(self, posts: list[SocialPost]) -> int:
+    def existing_post_ids(self, post_ids: list[str], *, chunk_size: int = 500) -> set[str]:
+        """Return post_ids already present in MySQL (batch IN query)."""
+        ids = [str(i) for i in post_ids if i]
+        if not ids:
+            return set()
+        found: set[str] = set()
+        with self._connection() as conn:
+            with conn.cursor() as cur:
+                for start in range(0, len(ids), chunk_size):
+                    chunk = ids[start : start + chunk_size]
+                    placeholders = ", ".join(["%s"] * len(chunk))
+                    cur.execute(
+                        f"""
+                        SELECT post_id FROM {MYSQL_TABLE_POSTS}
+                        WHERE post_id IN ({placeholders})
+                        """,
+                        chunk,
+                    )
+                    found.update(str(row["post_id"]) for row in cur.fetchall())
+        return found
+
+    def insert_posts_batch(
+        self,
+        posts: list[SocialPost],
+        *,
+        batch_size: int = 100,
+        skip_existing: bool = True,
+    ) -> tuple[int, int]:
+        """Insert posts in batches. Returns (inserted, skipped_existing)."""
         if not posts:
-            return 0
+            return 0, 0
+
+        by_id = {post.id: post for post in posts if post.id}
+        unique_posts = list(by_id.values())
+
+        if skip_existing:
+            existing = self.existing_post_ids([p.id for p in unique_posts])
+            to_insert = [p for p in unique_posts if p.id not in existing]
+            skipped = len(unique_posts) - len(to_insert)
+        else:
+            to_insert = unique_posts
+            skipped = 0
+
+        if not to_insert:
+            return 0, skipped
+
         now = datetime.now(timezone.utc).replace(tzinfo=None)
         inserted = 0
         with self._connection() as conn:
             with conn.cursor() as cur:
-                for post in posts:
-                    created = post.created
-                    if created.tzinfo is not None:
-                        created = created.astimezone(timezone.utc).replace(tzinfo=None)
+                for start in range(0, len(to_insert), batch_size):
+                    batch = to_insert[start : start + batch_size]
+                    values = []
+                    params: list = []
+                    for post in batch:
+                        created = post.created
+                        if created.tzinfo is not None:
+                            created = created.astimezone(timezone.utc).replace(tzinfo=None)
+                        values.append("(%s, %s, %s, %s, %s, %s, %s, %s, %s)")
+                        params.extend(
+                            [
+                                post.id,
+                                post.author.lower(),
+                                post.text,
+                                created,
+                                post.score,
+                                post.url,
+                                json.dumps(post.tickers),
+                                post.source,
+                                now,
+                            ]
+                        )
                     cur.execute(
                         f"""
                         INSERT IGNORE INTO {MYSQL_TABLE_POSTS}
                             (post_id, author, text, created_at, score, url, tickers, source, fetched_at)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        VALUES {", ".join(values)}
                         """,
-                        (
-                            post.id,
-                            post.author.lower(),
-                            post.text,
-                            created,
-                            post.score,
-                            post.url,
-                            json.dumps(post.tickers),
-                            post.source,
-                            now,
-                        ),
+                        params,
                     )
                     inserted += cur.rowcount
+        return inserted, skipped
+
+    def account_created_bounds(
+        self,
+        account: str,
+        *,
+        created_before: datetime | None = None,
+        created_after: datetime | None = None,
+    ) -> tuple[datetime | None, datetime | None]:
+        """Return (min_created_at, max_created_at) for optional half-open filters."""
+        account = account.lstrip("@").lower()
+        clauses = ["author = %s"]
+        params: list = [account]
+        if created_before is not None:
+            if created_before.tzinfo is not None:
+                created_before = created_before.astimezone(timezone.utc).replace(tzinfo=None)
+            clauses.append("created_at < %s")
+            params.append(created_before)
+        if created_after is not None:
+            if created_after.tzinfo is not None:
+                created_after = created_after.astimezone(timezone.utc).replace(tzinfo=None)
+            clauses.append("created_at >= %s")
+            params.append(created_after)
+        where = " AND ".join(clauses)
+        with self._connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"""
+                    SELECT MIN(created_at) AS min_created, MAX(created_at) AS max_created
+                    FROM {MYSQL_TABLE_POSTS}
+                    WHERE {where}
+                    """,
+                    params,
+                )
+                row = cur.fetchone() or {}
+        min_created = row.get("min_created")
+        max_created = row.get("max_created")
+        if isinstance(min_created, datetime) and min_created.tzinfo is None:
+            min_created = min_created.replace(tzinfo=timezone.utc)
+        if isinstance(max_created, datetime) and max_created.tzinfo is None:
+            max_created = max_created.replace(tzinfo=timezone.utc)
+        return min_created, max_created
+
+    def detect_ci_gap_window(
+        self,
+        account: str,
+        ci_after: datetime,
+    ) -> tuple[datetime, datetime] | None:
+        """Gap between guest/historical newest and CI-window oldest in MySQL.
+
+        Returns (gap_after, gap_before) where gap_after < created_at < gap_before.
+        """
+        if ci_after.tzinfo is None:
+            ci_after = ci_after.replace(tzinfo=timezone.utc)
+        _, hist_newest = self.account_created_bounds(account, created_before=ci_after)
+        ci_oldest, _ = self.account_created_bounds(account, created_after=ci_after)
+        if hist_newest is None or ci_oldest is None:
+            return None
+        gap_after = hist_newest + timedelta(microseconds=1)
+        gap_before = ci_oldest - timedelta(microseconds=1)
+        if gap_after >= gap_before:
+            return None
+        return gap_after, gap_before
+
+    def upsert_posts(self, posts: list[SocialPost]) -> int:
+        inserted, _ = self.insert_posts_batch(posts, skip_existing=False)
         return inserted
 
     def list_posts(self, account: str, window: FetchWindow) -> list[SocialPost]:

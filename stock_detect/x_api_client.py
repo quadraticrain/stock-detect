@@ -143,6 +143,102 @@ class XApiClient:
         posts.sort(key=lambda p: p.created, reverse=True)
         return posts[:max_posts]
 
+    def iter_timeline_pages(
+        self,
+        screen_name: str,
+        *,
+        window: FetchWindow,
+        max_pages: int,
+        max_posts: int,
+        stats: FetchStats,
+        since_id: str | None = None,
+        user_id: str | None = None,
+        exclude: str | None = None,
+        pagination_token: str | None = None,
+    ):
+        """Yield one API page of posts at a time; carries pagination_token across calls."""
+        if not user_id:
+            user_id = self.resolve_user_id(screen_name, stats)
+        if not user_id:
+            return
+
+        screen_name = screen_name.lstrip("@").lower()
+        pages = 0
+        posts_seen = 0
+        token = pagination_token
+
+        while pages < max_pages and posts_seen < max_posts:
+            page_posts, token = self._fetch_timeline_page(
+                user_id,
+                screen_name,
+                window=window,
+                max_results=min(100, max_posts - posts_seen),
+                stats=stats,
+                since_id=since_id,
+                exclude=exclude,
+                pagination_token=token,
+            )
+            pages += 1
+            if not page_posts:
+                if not token:
+                    break
+                time.sleep(REQUEST_DELAY_SEC)
+                continue
+            posts_seen += len(page_posts)
+            yield page_posts
+            if not token:
+                break
+            time.sleep(REQUEST_DELAY_SEC)
+
+    def _fetch_timeline_page(
+        self,
+        user_id: str,
+        screen_name: str,
+        *,
+        window: FetchWindow,
+        max_results: int,
+        stats: FetchStats,
+        since_id: str | None,
+        exclude: str | None,
+        pagination_token: str | None,
+    ) -> tuple[list[SocialPost], str | None]:
+        params: dict = {
+            "max_results": max(5, min(100, max_results)),
+            "end_time": _iso(window.before),
+            "tweet.fields": _TWEET_FIELDS,
+            "expansions": "author_id",
+            "user.fields": _USER_FIELDS,
+        }
+        if window.api_start_time:
+            params["start_time"] = _iso(window.after)
+        if exclude:
+            params["exclude"] = exclude
+        if since_id:
+            params["since_id"] = since_id
+        if pagination_token:
+            params["pagination_token"] = pagination_token
+
+        try:
+            resp = self.session.get(
+                f"{_API_BASE}/users/{user_id}/tweets",
+                params=params,
+                headers=self._auth_headers(),
+                auth=self._oauth1_auth(),
+                timeout=45,
+            )
+            if resp.status_code != 200:
+                stats.pages_skipped += 1
+                return [], None
+            payload = resp.json()
+        except (requests.RequestException, ValueError, KeyError):
+            stats.pages_skipped += 1
+            return [], None
+
+        stats.pages_fetched += 1
+        page_posts = self._parse_timeline(payload, screen_name)
+        next_token = payload.get("meta", {}).get("next_token")
+        return page_posts, next_token
+
     def _fetch_timeline_pages(
         self,
         user_id: str,
@@ -162,46 +258,22 @@ class XApiClient:
             if len(posts) >= max_posts:
                 break
 
-            params: dict = {
-                "max_results": max(5, min(100, max_posts - len(posts))),
-                "start_time": _iso(window.after),
-                "end_time": _iso(window.before),
-                "tweet.fields": _TWEET_FIELDS,
-                "expansions": "author_id",
-                "user.fields": _USER_FIELDS,
-            }
-            if exclude:
-                params["exclude"] = exclude
-            if since_id:
-                params["since_id"] = since_id
-            if pagination_token:
-                params["pagination_token"] = pagination_token
-
-            try:
-                resp = self.session.get(
-                    f"{_API_BASE}/users/{user_id}/tweets",
-                    params=params,
-                    headers=self._auth_headers(),
-                    auth=self._oauth1_auth(),
-                    timeout=45,
-                )
-                if resp.status_code != 200:
-                    stats.pages_skipped += 1
-                    break
-                payload = resp.json()
-            except (requests.RequestException, ValueError, KeyError):
-                stats.pages_skipped += 1
-                break
-
-            stats.pages_fetched += 1
-            page_posts = self._parse_timeline(payload, screen_name)
+            page_posts, pagination_token = self._fetch_timeline_page(
+                user_id,
+                screen_name,
+                window=window,
+                max_results=max_posts - len(posts),
+                stats=stats,
+                since_id=since_id,
+                exclude=exclude,
+                pagination_token=pagination_token,
+            )
             known = {post.id for post in posts}
             for post in page_posts:
                 if post.id not in known:
                     posts.append(post)
                     known.add(post.id)
 
-            pagination_token = payload.get("meta", {}).get("next_token")
             if not pagination_token or not page_posts:
                 break
             time.sleep(REQUEST_DELAY_SEC)
