@@ -19,7 +19,7 @@ from stock_detect.config import (  # noqa: E402
 )
 from stock_detect.env import bootstrap  # noqa: E402
 from stock_detect.fetch_window import FetchStats, FetchWindow, default_fetch_window  # noqa: E402
-from stock_detect.models import SocialPost  # noqa: E402
+from stock_detect.models import SocialPost, sort_posts_chronological  # noqa: E402
 from stock_detect.tweet_cache import TweetCache  # noqa: E402
 from stock_detect.twitter_fetcher import TwitterFetcher  # noqa: E402
 
@@ -47,8 +47,8 @@ def _flush_buffer(
     batch_size: int,
 ) -> tuple[int, int]:
     if not buffer or dry_run:
-        return 0, 0 if dry_run else 0
-    by_id = {p.id: p for p in buffer}
+        return 0, 0
+    by_id = {p.id: p for p in sort_posts_chronological(buffer)}
     return cache.insert_posts_batch(list(by_id.values()), batch_size=batch_size, skip_existing=True)
 
 

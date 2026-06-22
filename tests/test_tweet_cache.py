@@ -56,6 +56,42 @@ class TweetCacheTests(unittest.TestCase):
         self.assertIn("post_id IN", sql)
 
     @patch("stock_detect.tweet_cache.pymysql.connect")
+    def test_insert_posts_batch_writes_oldest_first(self, mock_connect):
+        conn = MagicMock()
+        cursor = MagicMock()
+        cursor.fetchall.return_value = []
+        cursor.rowcount = 2
+        conn.cursor.return_value.__enter__.return_value = cursor
+        mock_connect.return_value = conn
+
+        cache = TweetCache(password="secret")
+        posts = [
+            SocialPost(
+                "300",
+                "c",
+                "demo",
+                "x",
+                datetime(2026, 6, 1, tzinfo=timezone.utc),
+                0,
+                "",
+            ),
+            SocialPost(
+                "100",
+                "a",
+                "demo",
+                "x",
+                datetime(2026, 1, 1, tzinfo=timezone.utc),
+                0,
+                "",
+            ),
+        ]
+        cache.insert_posts_batch(posts, skip_existing=True)
+
+        params = cursor.execute.call_args[0][1]
+        self.assertEqual(params[0], "100")
+        self.assertEqual(params[9], "300")
+
+    @patch("stock_detect.tweet_cache.pymysql.connect")
     def test_insert_posts_batch_skips_existing(self, mock_connect):
         conn = MagicMock()
         cursor = MagicMock()
