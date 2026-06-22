@@ -75,7 +75,10 @@ DEFAULT_X_ACCOUNTS = [
 CI_SCHEDULED_X_ACCOUNTS = (
     "aleabitoreddit",
     "elonmusk",
-    "SpeakerPelosi",
+    "BofA_News",
+    "mingchikuo",
+    "SEMIglobal",
+    "Gartner_inc",
 )
 CI_SCHEDULED_X_ACCOUNTS_CSV = ",".join(CI_SCHEDULED_X_ACCOUNTS)
 
