@@ -14,15 +14,12 @@ class CiScheduledAccountsTests(unittest.TestCase):
             (
                 "aleabitoreddit",
                 "elonmusk",
-                "BofA_News",
                 "mingchikuo",
-                "SEMIglobal",
-                "Gartner_inc",
             ),
         )
         self.assertEqual(
             CI_SCHEDULED_X_ACCOUNTS_CSV,
-            "aleabitoreddit,elonmusk,BofA_News,mingchikuo,SEMIglobal,Gartner_inc",
+            "aleabitoreddit,elonmusk,mingchikuo",
         )
 
 
