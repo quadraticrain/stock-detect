@@ -31,7 +31,7 @@ from stock_detect.fetch_window import (
     gap_window_before,
     guest_backfill_window,
 )
-from stock_detect.models import SocialPost
+from stock_detect.models import SocialPost, sort_posts_chronological
 from stock_detect.tweet_cache import TweetCache
 from stock_detect.x_api_client import XApiClient
 
@@ -203,6 +203,8 @@ class TwitterFetcher:
         total_inserted = 0
         posts_seen = 0
         last_tweet_id = since_id
+        chronological = since_id is None
+        buffer: list[SocialPost] = []
 
         for exclude in X_API_TIMELINE_EXCLUDES or (None,):
             for page in self.x_api.iter_timeline_pages(
@@ -220,23 +222,41 @@ class TwitterFetcher:
                 if posts_seen + len(page) > max_posts:
                     page = page[: max_posts - posts_seen]
 
-                inserted, skipped = cache.insert_posts_batch(page, skip_existing=True)
-                total_inserted += inserted
-                posts_seen += len(page)
-
-                if advance_state:
-                    last_tweet_id = self._advance_fetch_state(
-                        cache,
-                        screen_name,
-                        user_id=user_id,
-                        posts=page,
-                        last_tweet_id=last_tweet_id,
+                if chronological:
+                    buffer.extend(page)
+                else:
+                    inserted, skipped = cache.insert_posts_batch(
+                        sort_posts_chronological(page),
+                        skip_existing=True,
                     )
+                    total_inserted += inserted
+                    if advance_state:
+                        last_tweet_id = self._advance_fetch_state(
+                            cache,
+                            screen_name,
+                            user_id=user_id,
+                            posts=page,
+                            last_tweet_id=last_tweet_id,
+                        )
+                    if stop_when_all_duplicates and inserted == 0 and skipped == len(page):
+                        return total_inserted
 
-                if stop_when_all_duplicates and inserted == 0 and skipped == len(page):
-                    return total_inserted
+                posts_seen += len(page)
                 if posts_seen >= max_posts:
-                    return total_inserted
+                    break
+
+        if chronological and buffer:
+            buffer = sort_posts_chronological(buffer)
+            inserted, _ = cache.insert_posts_batch(buffer, skip_existing=True)
+            total_inserted += inserted
+            if advance_state:
+                self._advance_fetch_state(
+                    cache,
+                    screen_name,
+                    user_id=user_id,
+                    posts=buffer,
+                    last_tweet_id=last_tweet_id,
+                )
 
         return total_inserted
 

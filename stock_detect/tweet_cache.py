@@ -19,7 +19,7 @@ from stock_detect.config import (
     MYSQL_USER,
 )
 from stock_detect.fetch_window import FetchWindow
-from stock_detect.models import SocialPost
+from stock_detect.models import SocialPost, sort_posts_chronological
 
 try:
     import pymysql
@@ -310,6 +310,8 @@ class TweetCache:
 
         if not to_insert:
             return 0, skipped
+
+        to_insert = sort_posts_chronological(to_insert)
 
         now = datetime.now(timezone.utc).replace(tzinfo=None)
         inserted = 0
