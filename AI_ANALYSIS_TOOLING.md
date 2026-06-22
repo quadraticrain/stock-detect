@@ -111,7 +111,9 @@ OpenClaw 定时配置（详见 `prompts/openclaw_daily_ai_analysis.md`）：
 
 ## 六、移除账号的 MySQL 清理
 
-从定时 CI / OpenClaw 账号列表移除某博主后，应同步清理 MySQL，避免残留推文与 `fetch_state` 干扰统计。
+从定时 CI / OpenClaw 账号列表移除某博主后，应**手动**同步清理 MySQL，避免残留推文与 `fetch_state` 干扰统计。
+
+**设计原则**：`DELETE` 语句写在仓库里的 `scripts/purge_account.py` 中（可审查、可版本管理），但**不会被** `scan_mysql.py`、GitHub Actions、OpenClaw 定时任务或 `analyzer` 自动调用；仅运维在终端显式执行该脚本时才会删库。
 
 **工具**：`scripts/purge_account.py`（删除 `stock_detect_x_posts`、`stock_detect_x_fetch_state`、该账号全部 `stock_detect_ai_*` 行）
 
