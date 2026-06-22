@@ -26,6 +26,7 @@ class ScanMarkerTests(unittest.TestCase):
 
     def test_marker_post_id(self):
         self.assertEqual(ci_marker_post_id("HillaryClinton"), "###CI_SCAN_hillaryclinton###")
+        self.assertEqual(ci_marker_post_id("SpeakerPelosi"), "###CI_SCAN_speakerpelosi###")
 
 
 class MergeCiScanMetadataTests(unittest.TestCase):

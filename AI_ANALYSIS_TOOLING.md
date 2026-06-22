@@ -1,6 +1,6 @@
 # stock-detect AI 舆情分析工具说明
 
-> 本文档说明 stock-detect 项目「每日 AI 舆情分析」定时任务（openclaw-v4）的手动执行工具链。
+> 本文档说明 stock-detect 项目「每日 AI 舆情分析」定时任务（openclaw-v5）的手动执行工具链。
 > 原任务由 OpenClaw 在每天北京时间 13:00 自动触发；本文档对应工具用于本地/WorkBuddy 手动跑一次同样的增量分析流程，方便排障、补跑与验收。
 
 ## 一、任务背景
@@ -15,6 +15,8 @@
 | `stock_detect_ai_top_tickers` | 按 run 排名的热门 ticker |
 
 断点机制：启动读上次 `checkpoint_*` → 只处理断点之后且未分析过的 `post_id` → 结束写新 `checkpoint_*`。排序键 `(created_at ASC, post_id ASC)` 保证断点可复现。
+
+**定时账号（与 GitHub Actions `scan-mysql.yml` 一致）**：`aleabitoreddit`, `elonmusk`, `SpeakerPelosi`（佩洛西官方 X：`@SpeakerPelosi`）。
 
 ## 二、工具脚本
 
@@ -59,14 +61,14 @@
 }
 ```
 
-### 2. `scripts/gen_alea_run.py` / `gen_elon_run.py` / `gen_hillary_run.py` — 语义判断承载脚本
+### 2. `scripts/gen_alea_run.py` / `gen_elon_run.py` / `gen_pelosi_run.py` — 语义判断承载脚本
 
 **用途**：承载 AI 对各账号本批推文的语义判断结果（recommendation / confidence / reasoning），读取 `ai_analysis_helper.py fetch` 产生的 JSON，输出符合 `write-run` 输入格式的 run JSON。
 
 **判断原则**：
 - **aleabitoreddit**：半导体/AI 供应链分析师，推文含大量 $TICKER。逐帖识别 ticker（优先 `tickers` JSON 列，其次正文 `$TICKER`），按作者明确评级（Strong Buy/Buy/Hold/Sell）或语义判断映射 recommendation。
-- **elonmusk**：0 条显式 $TICKER，按 prompt 规则仅对 Tesla 语境相关帖做 TSLA 语义映射；纯 SpaceX/xAI/Grok/Starship 内容不映射（未上市或无对应标的）。少 explicit buy。
-- **HillaryClinton**：政治人物，0 ticker，经扫描无任何可映射公司/ticker 语境，0 signals。
+- **elonmusk**：少见显式 $TICKER；SpaceX/xAI/Starlink → SPCX，Tesla 语境 → TSLA，见 openclaw-v5.1。
+- **SpeakerPelosi**：政治人物；仅立法/政策明确指向行业或公司时映射（如芯片法案、清洁能源、医疗改革），confidence ≤ 0.5；纯党派或泛化经济用语不映射。
 
 **reasoning 为中文**，引用原文关键词；summary 末尾均带「仅供参考，非投资建议」。
 
@@ -78,8 +80,10 @@
 | elonmusk | 400 | 24 | 19 | 1 | partial | 2046846861105897857 |
 | HillaryClinton | 69 | 0 | 0 | 0 | completed | 2067959995841282142 |
 
+> **注**：2026-06-22 起定时账号已换为 `SpeakerPelosi` 替代 `HillaryClinton`；上表 Hillary 行为历史手动跑批记录。
+
 - 三账号均为**全量首次分析**（无历史 checkpoint，resume_from=NULL）。
-- aleabitoreddit / elonmusk 因单批 400 上限打满，status=partial，仍有未处理帖；HillaryClinton 仅 69 帖已全部处理，status=completed。
+- aleabitoreddit / elonmusk 因单批 400 上限打满，status=partial，仍有未处理帖；HillaryClinton 当时仅 69 帖已全部处理，status=completed。
 - 验证结果：三账号 duplicate_signal_posts 均为 0，无重复分析。
 
 ## 四、核心主题发现（aleabitoreddit）
@@ -103,7 +107,7 @@ OpenClaw 定时配置（详见 `prompts/openclaw_daily_ai_analysis.md`）：
 | 环境变量 | `MYSQL_PASSWORD`（必填） |
 | 单批上限 | 400 帖/账号/次 |
 
-定时任务会自动读断点续跑。因 aleabitoreddit（剩余 4289）和 elonmusk（剩余 1910）仍有大量历史帖，首次追平需多次定时触发；HillaryClinton 已 completed，后续仅处理增量。
+定时任务会自动读断点续跑。因 aleabitoreddit / elonmusk 仍有大量历史帖，首次追平需多次定时触发；`SpeakerPelosi` 首次接入后从最早缓存帖开始增量分析。
 
 ## 六、文件清单
 
@@ -112,6 +116,6 @@ OpenClaw 定时配置（详见 `prompts/openclaw_daily_ai_analysis.md`）：
 | `scripts/ai_analysis_helper.py` | MySQL 读写主工具（sync/checkpoint/fetch/write-run/verify） |
 | `scripts/gen_alea_run.py` | aleabitoreddit 语义判断承载脚本 |
 | `scripts/gen_elon_run.py` | elonmusk 语义判断承载脚本 |
-| `scripts/gen_hillary_run.py` | HillaryClinton 语义判断承载脚本 |
+| `scripts/gen_pelosi_run.py` | SpeakerPelosi 语义判断承载脚本 |
 | `AI_ANALYSIS_TOOLING.md` | 本文档 |
 | `prompts/openclaw_daily_ai_analysis.md` | OpenClaw 定时任务 prompt 规范（既有） |

@@ -1,5 +1,9 @@
 name: Scan MySQL (X fetch)
 
+env:
+  # Daily cron + workflow_dispatch default when accounts input is empty
+  SCHEDULED_ACCOUNTS: aleabitoreddit,elonmusk,SpeakerPelosi
+
 on:
   schedule:
     - cron: "0 1 * * *"   # daily 09:00 Beijing (UTC+8) = 01:00 UTC
@@ -8,7 +12,7 @@ on:
       accounts:
         description: "X accounts (comma-separated, e.g. elonmusk)"
         required: false
-        default: "aleabitoreddit"
+        default: "aleabitoreddit,elonmusk,SpeakerPelosi"
         type: string
       window_days:
         description: "Lookback window in days (X API ~63; older via guest backfill)"
@@ -70,7 +74,7 @@ jobs:
           MYSQL_PASSWORD: ${{ secrets.MYSQL_PASSWORD }}
         run: |
           python scripts/extended_prefetch.py \
-            --accounts "${{ github.event.inputs.accounts || 'aleabitoreddit' }}" \
+            --accounts "${{ github.event.inputs.accounts || env.SCHEDULED_ACCOUNTS }}" \
             --window-days "${{ github.event.inputs.window_days || '63' }}" \
             --max-posts "${{ steps.caps.outputs.max_posts }}" \
             --max-pages "${{ steps.caps.outputs.max_pages }}"
@@ -82,7 +86,7 @@ jobs:
         run: |
           python scripts/scan_mysql.py \
             --source x \
-            --accounts "${{ github.event.inputs.accounts || 'aleabitoreddit' }}" \
+            --accounts "${{ github.event.inputs.accounts || env.SCHEDULED_ACCOUNTS }}" \
             --window-days "${{ github.event.inputs.window_days || '63' }}" \
             --limit "${{ steps.caps.outputs.max_posts }}" \
             --max-pages "${{ steps.caps.outputs.max_pages }}"
@@ -92,5 +96,5 @@ jobs:
           MYSQL_PASSWORD: ${{ secrets.MYSQL_PASSWORD }}
         run: |
           python scripts/mysql_coverage.py \
-            --accounts "${{ github.event.inputs.accounts || 'aleabitoreddit' }}" \
+            --accounts "${{ github.event.inputs.accounts || env.SCHEDULED_ACCOUNTS }}" \
             --window-days "${{ github.event.inputs.window_days || '63' }}"

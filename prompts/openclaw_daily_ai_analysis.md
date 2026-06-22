@@ -7,8 +7,8 @@
 > **v5 变更（2026-06-22，基于首次全量处理三账号数据的实证观察）**：
 > - 将「Ticker 识别」从单条规则扩展为**6 类映射 + 7 级态度**的完整框架
 > - 修正 elonmusk 规则过窄问题：SpaceX/xAI/Grok 不再「不映射」
-> - **v5.1 修正（2026-06-22）**：SpaceX 已于 2026-06-12 在 NASDAQ IPO（代码 **SPCX**，募资 $75B，史上最大 IPO），xAI 于 2026 年初并入 SpaceX。因此 SpaceX/Starlink/xAI/Grok 提及应**直接映射 SPCX**（类型 B），不再走 Type C 影响传导；同时保留 TSLA 作为次要传导信号（Musk 财富集中效应）
-> - 新增「主题篮子映射」规则：博主反复讨论的行业主题（Neocloud / InP 光子学 / 国防无人机等）映射到该博主历史持仓的一篮子 ticker
+> **v5.2 变更（2026-06-22）**：定时账号由 `HillaryClinton` 换为 **`SpeakerPelosi`（佩洛西）**；与 GitHub Actions 每日抓取三位博主对齐：`aleabitoreddit`, `elonmusk`, `SpeakerPelosi`。
+> - **v5.1 修正（2026-06-22）**：SpaceX 已于 2026-06-12 在 NASDAQ IPO（代码 **SPCX**），xAI 并入 SpaceX；SpaceX/Starlink/xAI/Grok → **SPCX**（类型 B），并保留 TSLA 次要传导
 > - 新增「供应链语境映射」规则：提及 TSMC/台积电 → TSM，提及 hyperscaler 客户 → 对应 ticker 作为 context neutral
 
 ---
@@ -50,7 +50,7 @@
 |------|------|-------------|
 | `aleabitoreddit` | 半导体/AI 基础设施投资博主 | 显式 `$TICKER` 为主（307/400 帖含 cashtag），评级直接（Strong Buy/Buy/Hold/Sell）。**主题篮子明显**：Neocloud（NBIS/CRWV/IREN/WULF/CIFR/BITF/WYFI）、InP 光子学瓶颈（AXTI/LITE/COHR/AAOI/POET/DOWA/SMTOY）、国防无人机（AIRO/OSS/AVAV）、委内瑞拉国家建设（GRZ/CVX/AVAV/ASHM/TRGP）、算力连结（ALAB/CRDO/MRVL/AVGO/TSM/MU/SMCI）。逐帖给评级时，对篮子内未点名的 ticker 也应给 neutral context 信号。 |
 | `elonmusk` | 企业家（Tesla/SpaceX/xAI） | **0 条显式 $TICKER**，但推文高度聚焦其商业版图。**SpaceX 已于 2026-06-12 IPO（NASDAQ: SPCX），xAI 已并入 SpaceX**。因此 SpaceX/Starlink/xAI/Grok/Starship 提及应**直接映射 SPCX**（类型 B，confidence 0.5–0.65），同时给 TSLA 次要传导信号（confidence 0.4–0.5，Musk 财富集中效应）。Optimus/Neuralink 仍为未上市实体 → Type C 影响 TSLA。TSMC 作为客户/供应商 → TSM；BTC/DOGE 加密提及 → BTC/DOGE。 |
-| `HillaryClinton` | 政治人物 | 首批 69 帖 0 条可映射 ticker：profit/tax/dollar 均为政治批评用语，dow 为无人机名误匹配。**保持 0 signals**；仅当出现明确行业政策批评（如「Big Oil」→ XOM/CVX 负向、「清洁能源」→ 太阳能篮子正向）时才映射，且 confidence ≤ 0.4。 |
+| `SpeakerPelosi` | 政治人物（前众议院议长） | 少见显式 `$TICKER`，但推文常涉及**立法与行业政策**（芯片法案→NVDA/AMD/INTC/TSM/AVGO；清洁能源→ENPH/FSLR；医疗改革→UNH；Big Tech 监管→GOOGL/META/AAPL/AMZN）。**仅当明确指向具体行业/公司/法案影响**时映射，confidence ≤ 0.5；纯党派攻击、泛化「经济/债务/税」、社交活动不映射。勿根据国会披露交易传闻在推文无依据时臆造 signal。 |
 
 ---
 
@@ -174,7 +174,7 @@ LIMIT :batch_limit;
 ### 类型 F：不映射（明确排除）
 - 泛用词作为动词/名词：job, tax, dollar, invest, profit（非公司名）
 - 个人生活、节日、纯社交互动
-- 政治批评中未指向具体行业/ticker 的（HillaryClinton 多数帖）
+- 政治批评中未指向具体行业/ticker 的（SpeakerPelosi 多数帖）
 - 产品名与公司名碰撞（如 "dow" 指无人机而非 DOW 化工）
 
 ---
@@ -192,6 +192,8 @@ LIMIT :batch_limit;
 | **战术性卖出/减仓** | sell | 0.55–0.65 | 获利了结、换仓（如卖 IREN 换 NBIS）、止损 |
 | **结构性看空** | sell | 0.6–0.7 | "huge warning", "debt trap", 重大风险事件（如 CRCL 解禁、IQEPF 在卖公司） |
 | **中性/语境** | neutral | 0.35–0.5 | 仅作为对比、客户、供应商提及；产品宣传无明确利好；政治泛指 |
+
+**SpeakerPelosi 专属校准**：政策/立法语境可映射相关 sector ticker，但 confidence 上限 0.5；需引用推文中的具体法案、行业或公司名。无 cashtag 且无明确公司名 → neutral 或不产出 signal。
 
 **elonmusk 专属校准**：因少 explicit buy，其信号 confidence 整体下调 0.1。SpaceX/Starlink/xAI 提及 → SPCX 主信号（confidence 0.5–0.65）+ TSLA 传导次信号（0.4–0.5）。明确产品/技术里程碑（如「AI5 taped out」「TERAFAB announcement」「Robotaxi 上线」）才给 TSLA buy 0.55–0.65；纯愿景（「Optimus 将成冯诺依曼探测器」）给 TSLA buy 0.5–0.55；纯社交/表情回应给 neutral 0.4。
 
@@ -233,7 +235,7 @@ LIMIT :batch_limit;
 ```
 执行 stock-detect 每日 AI 舆情分析（openclaw-v5，增量断点续跑）。
 
-- 账号列表：aleabitoreddit, elonmusk, HillaryClinton
+- 账号列表：aleabitoreddit, elonmusk, SpeakerPelosi
 - mode：incremental（默认；仅当用户显式要求 replay 时才 full）
 - batch_limit：400（每账号每批最多处理帖数）
 - 当前 UTC：{{NOW_UTC}}
