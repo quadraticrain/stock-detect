@@ -22,6 +22,7 @@ from stock_detect.config import (
     USER_AGENT,
     X_API_TIMELINE_EXCLUDES,
 )
+from stock_detect.fetch_budget import extended_fetch_budget, incremental_api_pages
 from stock_detect.fetch_window import (
     FetchStats,
     FetchWindow,
@@ -246,43 +247,52 @@ class TwitterFetcher:
         window: FetchWindow,
         max_pages: int,
         max_posts: int,
+        max_passes: int,
         stats: FetchStats,
         cache: TweetCache,
         user_id: str | None,
         since_id: str | None,
     ) -> int:
-        """Guest-fetch tweets older than the X API floor when window exceeds 63 days."""
-        cached = cache.list_posts(screen_name, window)
-        oldest = min((p.created for p in cached), default=None)
-        guest_window = guest_backfill_window(window, oldest)
-        if guest_window is None:
-            return 0
+        """Guest-fetch tweets older than the X API floor; multi-pass until gap closes."""
+        total_inserted = 0
+        passes = max(1, max_passes)
 
-        guest_posts, guest_stats = self.fetch_guest_history(
-            screen_name,
-            before=guest_window.before,
-            after=guest_window.after,
-            max_pages=max_pages,
-            max_posts=max_posts,
-        )
-        stats.pages_fetched += guest_stats.pages_fetched
-        stats.pages_skipped += guest_stats.pages_skipped
-        for stream in guest_stats.streams_used:
-            if stream not in stats.streams_used:
-                stats.streams_used.append(stream)
+        for _ in range(passes):
+            cached = cache.list_posts(screen_name, window)
+            oldest = min((p.created for p in cached), default=None)
+            guest_window = guest_backfill_window(window, oldest)
+            if guest_window is None:
+                break
 
-        if not guest_posts:
-            return 0
+            guest_posts, guest_stats = self.fetch_guest_history(
+                screen_name,
+                before=guest_window.before,
+                after=guest_window.after,
+                max_pages=max_pages,
+                max_posts=max_posts,
+            )
+            stats.pages_fetched += guest_stats.pages_fetched
+            stats.pages_skipped += guest_stats.pages_skipped
+            for stream in guest_stats.streams_used:
+                if stream not in stats.streams_used:
+                    stats.streams_used.append(stream)
 
-        inserted, _ = cache.insert_posts_batch(guest_posts, skip_existing=True)
-        self._advance_fetch_state(
-            cache,
-            screen_name,
-            user_id=user_id,
-            posts=guest_posts,
-            last_tweet_id=since_id,
-        )
-        return inserted
+            if not guest_posts:
+                break
+
+            inserted, skipped = cache.insert_posts_batch(guest_posts, skip_existing=True)
+            total_inserted += inserted
+            self._advance_fetch_state(
+                cache,
+                screen_name,
+                user_id=user_id,
+                posts=guest_posts,
+                last_tweet_id=since_id,
+            )
+            if inserted == 0 and skipped == len(guest_posts):
+                break
+
+        return total_inserted
 
     def _fetch_account_cached(
         self,
@@ -306,7 +316,26 @@ class TwitterFetcher:
             TweetCache.newest_tweet_id(cached) if cached else None
         )
 
+        budget = extended_fetch_budget(window.window_days, max_posts, max_pages)
         api_inserted = 0
+
+        if budget.guest_pages > 0:
+            guest_inserted = self._guest_backfill_pre_api(
+                screen_name,
+                window=window,
+                max_pages=budget.guest_pages,
+                max_posts=budget.guest_posts,
+                max_passes=budget.guest_passes,
+                stats=stats,
+                cache=cache,
+                user_id=user_id,
+                since_id=since_id,
+            )
+            api_inserted += guest_inserted
+            cached = cache.list_posts(screen_name, window)
+            oldest_cached = min((p.created for p in cached), default=None)
+            stats.cache_posts = len(cached)
+
         if self.x_api.is_configured():
             stats.x_auth_mode = self.x_api.credentials.auth_mode()
             if not user_id:
@@ -320,8 +349,8 @@ class TwitterFetcher:
                 api_inserted += self._fetch_and_persist_api_pages(
                     screen_name,
                     window=gap,
-                    max_pages=min(max_pages, FULL_FETCH_MAX_PAGES),
-                    max_posts=max_posts,
+                    max_pages=min(budget.api_pages, FULL_FETCH_MAX_PAGES),
+                    max_posts=budget.api_posts,
                     stats=stats,
                     cache=cache,
                     user_id=user_id,
@@ -332,8 +361,8 @@ class TwitterFetcher:
                 api_inserted += self._fetch_and_persist_api_pages(
                     screen_name,
                     window=window,
-                    max_pages=min(max_pages, FULL_FETCH_MAX_PAGES),
-                    max_posts=max_posts,
+                    max_pages=min(budget.api_pages, FULL_FETCH_MAX_PAGES),
+                    max_posts=budget.api_posts,
                     stats=stats,
                     cache=cache,
                     user_id=user_id,
@@ -345,8 +374,8 @@ class TwitterFetcher:
                 api_inserted += self._fetch_and_persist_api_pages(
                     screen_name,
                     window=window,
-                    max_pages=INCREMENTAL_MAX_PAGES,
-                    max_posts=max_posts,
+                    max_pages=incremental_api_pages(budget),
+                    max_posts=budget.api_posts,
                     stats=stats,
                     cache=cache,
                     user_id=user_id,
@@ -357,18 +386,8 @@ class TwitterFetcher:
 
             stats.api_posts_new = api_inserted
             stats.streams_used.append("XApiV2")
-
-        api_inserted += self._guest_backfill_pre_api(
-            screen_name,
-            window=window,
-            max_pages=max_pages,
-            max_posts=max_posts,
-            stats=stats,
-            cache=cache,
-            user_id=user_id,
-            since_id=since_id,
-        )
-        stats.api_posts_new = api_inserted
+        else:
+            stats.api_posts_new = api_inserted
 
         posts = cache.list_posts(screen_name, window)
         stats.cache_posts = len(posts)
@@ -439,6 +458,7 @@ class TwitterFetcher:
             max_posts=max_posts,
             stats=stats,
         )
+        posts = [p for p in posts if window.contains(p.created)]
         posts.sort(key=lambda p: p.created, reverse=True)
         self.last_stats = stats
         return posts, stats
@@ -611,14 +631,22 @@ class TwitterFetcher:
 
             stream_available = True
             stats.pages_fetched += 1
-            page_posts, next_cursor, oldest = self._parse_graphql_timeline(payload)
+            page_posts, next_cursor, _oldest = self._parse_graphql_timeline(payload)
             known_ids = {post.id for post in posts}
             for post in page_posts:
-                if post.id not in known_ids:
-                    posts.append(post)
-                    known_ids.add(post.id)
+                if post.id in known_ids:
+                    continue
+                if post.created >= window.before:
+                    continue
+                if post.created < window.after:
+                    continue
+                posts.append(post)
+                known_ids.add(post.id)
 
-            if oldest and oldest < window.after:
+            in_window = len(posts)
+            if in_window >= max_posts:
+                break
+            if page_posts and all(p.created < window.after for p in page_posts):
                 break
             if not next_cursor or not page_posts:
                 break
