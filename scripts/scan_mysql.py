@@ -12,6 +12,7 @@ sys.path.insert(0, str(ROOT))
 
 from stock_detect.analyzer import SignalAnalyzer  # noqa: E402
 from stock_detect.config import (  # noqa: E402
+    DISABLED_X_ACCOUNTS,
     EXTENDED_MAX_FETCH_PAGES,
     EXTENDED_MAX_FETCH_POSTS,
     FETCH_WINDOW_DAYS,
@@ -31,7 +32,14 @@ def main() -> int:
     parser.add_argument("--max-pages", type=int, default=MAX_FETCH_PAGES)
     args = parser.parse_args()
 
-    accounts = [a.strip().lstrip("@") for a in args.accounts.split(",") if a.strip()]
+    requested_accounts = [a.strip().lstrip("@").lower() for a in args.accounts.split(",") if a.strip()]
+    accounts = [a for a in requested_accounts if a not in DISABLED_X_ACCOUNTS]
+    disabled = [a for a in requested_accounts if a in DISABLED_X_ACCOUNTS]
+    if disabled:
+        print(f"Skip disabled X accounts: {','.join(disabled)}", file=sys.stderr)
+    if args.source in {"x", "both"} and not accounts:
+        print("No enabled X accounts to fetch; exiting without touching MySQL.")
+        return 0
     max_posts = min(args.limit, EXTENDED_MAX_FETCH_POSTS)
     max_pages = min(args.max_pages, EXTENDED_MAX_FETCH_PAGES)
 
