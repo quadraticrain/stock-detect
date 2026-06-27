@@ -14,6 +14,12 @@ fi
 log() { echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] $*" | tee -a /tmp/stock-detect-sequential-fetch.log; }
 
 for acct in "${ACCOUNTS[@]}"; do
+  normalized="${acct#@}"
+  normalized="$(printf '%s' "$normalized" | tr '[:upper:]' '[:lower:]')"
+  if [ "$normalized" = "justinsuntron" ] || [ "$normalized" = "sunyuchentron" ]; then
+    log "SKIP disabled account @$acct"
+    continue
+  fi
   log "START @$acct"
   gh workflow run "$WORKFLOW" --repo "$REPO" \
     -f "accounts=${acct}" \

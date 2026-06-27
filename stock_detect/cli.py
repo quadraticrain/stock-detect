@@ -11,6 +11,7 @@ from rich.console import Console
 from rich.table import Table
 
 from stock_detect.analyzer import SignalAnalyzer
+from stock_detect.config import DISABLED_X_ACCOUNTS
 from stock_detect.env import bootstrap
 from stock_detect.reddit_fetcher import RedditFetcher
 from stock_detect.twitter_fetcher import TwitterFetcher
@@ -29,7 +30,13 @@ def _parse_date(value: str) -> datetime:
 
 
 def _parse_accounts(value: str) -> list[str]:
-    return [a.strip().lstrip("@") for a in value.split(",") if a.strip()]
+    return [a.strip().lstrip("@").lower() for a in value.split(",") if a.strip()]
+
+
+def _filter_enabled_accounts(accounts: list[str]) -> tuple[list[str], list[str]]:
+    enabled = [account for account in accounts if account not in DISABLED_X_ACCOUNTS]
+    disabled = [account for account in accounts if account in DISABLED_X_ACCOUNTS]
+    return enabled, disabled
 
 
 def _source_label(source: str) -> str:
@@ -37,9 +44,16 @@ def _source_label(source: str) -> str:
 
 
 def cmd_scan(args: argparse.Namespace) -> int:
+    accounts, disabled_accounts = _filter_enabled_accounts(_parse_accounts(args.accounts))
+    if disabled_accounts:
+        console.print(f"[yellow]Skipping disabled X accounts:[/yellow] {', '.join('@' + a for a in disabled_accounts)}")
+    if args.source in {"x", "both"} and not accounts:
+        console.print("[yellow]No enabled X accounts to scan.[/yellow]")
+        return 0
+
     analyzer = SignalAnalyzer(
         subreddit=args.subreddit,
-        x_accounts=_parse_accounts(args.accounts),
+        x_accounts=accounts,
     )
 
     posts = None

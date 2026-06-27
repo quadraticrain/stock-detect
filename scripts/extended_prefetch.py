@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from stock_detect.config import (  # noqa: E402
+    DISABLED_X_ACCOUNTS,
     EXTENDED_MAX_FETCH_PAGES,
     EXTENDED_MAX_FETCH_POSTS,
     MAX_FETCH_PAGES,
@@ -48,7 +49,14 @@ def main() -> int:
         print(f"Window {args.window_days}d <= X API max; guest prefetch skipped.")
         return 0
 
-    accounts = [a.strip().lstrip("@").lower() for a in args.accounts.split(",") if a.strip()]
+    requested_accounts = [a.strip().lstrip("@").lower() for a in args.accounts.split(",") if a.strip()]
+    accounts = [a for a in requested_accounts if a not in DISABLED_X_ACCOUNTS]
+    disabled = [a for a in requested_accounts if a in DISABLED_X_ACCOUNTS]
+    if disabled:
+        print(f"Skip disabled X accounts: {','.join(disabled)}", file=sys.stderr)
+    if not accounts:
+        print("No enabled X accounts to prefetch; exiting without touching MySQL.")
+        return 0
     fetcher = TwitterFetcher()
     api_floor = x_api_earliest(before=window.before)
 
