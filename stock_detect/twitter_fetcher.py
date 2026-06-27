@@ -90,22 +90,40 @@ class TwitterFetcher:
 
         stats = FetchStats()
         posts_by_id: dict[str, SocialPost] = {}
+        cache = TweetCache()
+        normalized = [account.lstrip("@").lower() for account in accounts]
+        use_combined = (
+            cache.available
+            and self.x_api.is_configured()
+            and len(normalized) > 1
+        )
 
-        for account in accounts:
-            account = account.lstrip("@").lower()
-            if len(posts_by_id) >= max_posts:
-                break
-            remaining = max_posts - len(posts_by_id)
-            batch = self._fetch_account(
-                account,
+        if use_combined:
+            combined = self._fetch_accounts_cached_combined(
+                normalized,
                 window=window,
                 max_pages=max_pages,
-                max_posts=remaining,
+                max_posts=max_posts,
                 stats=stats,
+                cache=cache,
             )
-            for post in batch:
+            for post in combined:
                 posts_by_id.setdefault(post.id, post)
-            time.sleep(REQUEST_DELAY_SEC)
+        else:
+            for account in normalized:
+                if len(posts_by_id) >= max_posts:
+                    break
+                remaining = max_posts - len(posts_by_id)
+                batch = self._fetch_account(
+                    account,
+                    window=window,
+                    max_pages=max_pages,
+                    max_posts=remaining,
+                    stats=stats,
+                )
+                for post in batch:
+                    posts_by_id.setdefault(post.id, post)
+                time.sleep(REQUEST_DELAY_SEC)
 
         raw_posts = list(posts_by_id.values())
         stats.posts_raw = len(raw_posts)
@@ -314,6 +332,146 @@ class TwitterFetcher:
 
         return total_inserted
 
+    def _fetch_accounts_cached_combined(
+        self,
+        accounts: list[str],
+        *,
+        window: FetchWindow,
+        max_pages: int,
+        max_posts: int,
+        stats: FetchStats,
+        cache: TweetCache,
+    ) -> list[SocialPost]:
+        """Fetch multiple accounts: per-account backfill, then one combined incremental search."""
+        cache.ensure_schema()
+        stats.streams_used.append("MySQLCache")
+
+        budget = extended_fetch_budget(window.window_days, max_posts, max_pages)
+        incremental_targets: list[tuple[str, str, str | None]] = []
+        total_api_inserted = 0
+
+        missing_user_ids = []
+        for account in accounts:
+            state = cache.get_state(account)
+            if not state or not state.user_id:
+                missing_user_ids.append(account)
+        if missing_user_ids and self.x_api.is_configured():
+            stats.x_auth_mode = self.x_api.credentials.auth_mode()
+            for account, user_id in self.x_api.resolve_user_ids(
+                missing_user_ids,
+                stats,
+            ).items():
+                cache.save_state(account, user_id=user_id)
+
+        for account in accounts:
+            posts = self._fetch_account_cached(
+                account,
+                window=window,
+                max_pages=max_pages,
+                max_posts=max_posts,
+                stats=stats,
+                cache=cache,
+                skip_incremental=True,
+                skip_ci_scan=True,
+            )
+            total_api_inserted += stats.api_posts_new or 0
+
+            state = cache.get_state(account)
+            cached = cache.list_posts(account, window)
+            since_id = (state.last_tweet_id if state else None) or (
+                TweetCache.newest_tweet_id(cached) if cached else None
+            )
+            user_id = state.user_id if state else None
+            if cached and since_id:
+                incremental_targets.append((account, since_id, user_id))
+
+        if incremental_targets and self.x_api.is_configured():
+            combined_inserted = self._fetch_combined_incremental(
+                incremental_targets,
+                window=window,
+                max_pages=incremental_api_pages(budget),
+                max_posts=budget.api_posts,
+                stats=stats,
+                cache=cache,
+            )
+            total_api_inserted += combined_inserted
+            if combined_inserted > 0 and "XApiV2" not in stats.streams_used:
+                stats.streams_used.append("XApiV2")
+
+        stats.api_posts_new = total_api_inserted
+        all_posts: list[SocialPost] = []
+        for account in accounts:
+            all_posts.extend(cache.list_posts(account, window))
+            cache.record_ci_scan(
+                account,
+                api_posts_new=total_api_inserted,
+                window_days=window.window_days,
+            )
+        return all_posts[:max_posts]
+
+    def _fetch_combined_incremental(
+        self,
+        targets: list[tuple[str, str, str | None]],
+        *,
+        window: FetchWindow,
+        max_pages: int,
+        max_posts: int,
+        stats: FetchStats,
+        cache: TweetCache,
+    ) -> int:
+        """One search/recent request can return up to 100 tweets across all targets."""
+        accounts = [account for account, _since_id, _user_id in targets]
+        since_ids = [since_id for _account, since_id, _user_id in targets]
+        since_id = min(since_ids, key=int)
+        user_ids = {
+            account: user_id
+            for account, _since_id, user_id in targets
+            if user_id
+        }
+
+        total_inserted = 0
+        for page in self.x_api.iter_search_recent_pages(
+            accounts,
+            window=window,
+            max_pages=max_pages,
+            max_posts=max_posts,
+            stats=stats,
+            since_id=since_id,
+        ):
+            if not page:
+                continue
+
+            posts_by_account: dict[str, list[SocialPost]] = {}
+            for post in page:
+                posts_by_account.setdefault(post.author, []).append(post)
+
+            page_inserted = 0
+            page_skipped = 0
+            for account, _since_id, user_id in targets:
+                account_posts = posts_by_account.get(account, [])
+                if not account_posts:
+                    continue
+                inserted, skipped = cache.insert_posts_batch(
+                    sort_posts_chronological(account_posts),
+                    skip_existing=True,
+                )
+                page_inserted += inserted
+                page_skipped += skipped
+                if inserted:
+                    self._advance_fetch_state(
+                        cache,
+                        account,
+                        user_id=user_ids.get(account),
+                        posts=account_posts,
+                        last_tweet_id=_since_id,
+                    )
+
+            total_inserted += page_inserted
+            if page_inserted == 0 and page_skipped > 0:
+                break
+
+        return total_inserted
+
     def _fetch_account_cached(
         self,
         screen_name: str,
@@ -323,6 +481,8 @@ class TwitterFetcher:
         max_posts: int,
         stats: FetchStats,
         cache: TweetCache,
+        skip_incremental: bool = False,
+        skip_ci_scan: bool = False,
     ) -> list[SocialPost]:
         cache.ensure_schema()
         cached = cache.list_posts(screen_name, window)
@@ -390,7 +550,7 @@ class TwitterFetcher:
                     advance_state=True,
                 )
 
-            if cached and since_id:
+            if cached and since_id and not skip_incremental:
                 api_inserted += self._fetch_and_persist_api_pages(
                     screen_name,
                     window=window,
@@ -411,11 +571,12 @@ class TwitterFetcher:
 
         posts = cache.list_posts(screen_name, window)
         stats.cache_posts = len(posts)
-        cache.record_ci_scan(
-            screen_name,
-            api_posts_new=api_inserted,
-            window_days=window.window_days,
-        )
+        if not skip_ci_scan:
+            cache.record_ci_scan(
+                screen_name,
+                api_posts_new=api_inserted,
+                window_days=window.window_days,
+            )
         return posts[:max_posts]
 
     def _fetch_account_direct(

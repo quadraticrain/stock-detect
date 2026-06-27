@@ -76,6 +76,7 @@ CI_SCHEDULED_X_ACCOUNTS = (
     "aleabitoreddit",
     "elonmusk",
     "mingchikuo",
+    "justinsuntron",
 )
 CI_SCHEDULED_X_ACCOUNTS_CSV = ",".join(CI_SCHEDULED_X_ACCOUNTS)
 
