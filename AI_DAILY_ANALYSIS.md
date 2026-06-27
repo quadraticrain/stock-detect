@@ -184,7 +184,7 @@ buy/hold/sell/neutral 四值；confidence 0.35–0.9。elonmusk confidence 整�
 ```
 执行 stock-detect 每日 AI 舆情分析（openclaw-v5.5，增量断点续跑）。
 
-- 账号列表：aleabitoreddit, elonmusk, mingchikuo
+- 账号列表：aleabitoreddit, elonmusk, mingchikuo, justinsuntron
 - mode：incremental（默认）
 - batch_limit：400
 - 当前 UTC：{{NOW_UTC}}

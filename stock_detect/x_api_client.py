@@ -283,6 +283,168 @@ class XApiClient:
     def resolve_user_id(self, screen_name: str, stats: FetchStats) -> str | None:
         return self._resolve_user_id(screen_name, stats)
 
+    def resolve_user_ids(
+        self,
+        screen_names: list[str],
+        stats: FetchStats,
+    ) -> dict[str, str]:
+        """Resolve multiple usernames in one API call (up to 100)."""
+        names = [
+            name.lstrip("@").lower()
+            for name in screen_names
+            if name.lstrip("@").strip()
+        ]
+        if not names:
+            return {}
+
+        resolved: dict[str, str] = {}
+        chunk_size = 100
+        for start in range(0, len(names), chunk_size):
+            chunk = names[start : start + chunk_size]
+            try:
+                resp = self.session.get(
+                    f"{_API_BASE}/users/by",
+                    params={
+                        "usernames": ",".join(chunk),
+                        "user.fields": "id,username",
+                    },
+                    headers=self._auth_headers(),
+                    auth=self._oauth1_auth(),
+                    timeout=30,
+                )
+                if resp.status_code != 200:
+                    stats.pages_skipped += 1
+                    continue
+                payload = resp.json()
+            except (requests.RequestException, ValueError, KeyError):
+                stats.pages_skipped += 1
+                continue
+
+            stats.pages_fetched += 1
+            for user in payload.get("data") or []:
+                username = str(user.get("username") or "").lower()
+                user_id = str(user.get("id") or "")
+                if username and user_id:
+                    resolved[username] = user_id
+        return resolved
+
+    @staticmethod
+    def build_from_users_query(screen_names: list[str]) -> str:
+        """Build a search query matching tweets from multiple accounts."""
+        clauses = [
+            f"from:{name.lstrip('@').lower()}"
+            for name in screen_names
+            if name.lstrip("@").strip()
+        ]
+        if not clauses:
+            return ""
+        query = " OR ".join(clauses)
+        if len(clauses) > 1:
+            query = f"({query})"
+        return f"{query} -is:retweet"
+
+    def iter_search_recent_pages(
+        self,
+        screen_names: list[str],
+        *,
+        window: FetchWindow,
+        max_pages: int,
+        max_posts: int,
+        stats: FetchStats,
+        since_id: str | None = None,
+        pagination_token: str | None = None,
+    ):
+        """Yield one search page (up to 100 tweets) across multiple accounts."""
+        query = self.build_from_users_query(screen_names)
+        if not query:
+            return
+
+        pages = 0
+        posts_seen = 0
+        token = pagination_token
+
+        while pages < max_pages and posts_seen < max_posts:
+            page_posts, token = self._fetch_search_recent_page(
+                query,
+                window=window,
+                max_results=min(100, max_posts - posts_seen),
+                stats=stats,
+                since_id=since_id,
+                pagination_token=token,
+            )
+            pages += 1
+            if not page_posts:
+                if not token:
+                    break
+                time.sleep(REQUEST_DELAY_SEC)
+                continue
+            posts_seen += len(page_posts)
+            yield page_posts
+            if not token:
+                break
+            time.sleep(REQUEST_DELAY_SEC)
+
+    def _fetch_search_recent_page(
+        self,
+        query: str,
+        *,
+        window: FetchWindow,
+        max_results: int,
+        stats: FetchStats,
+        since_id: str | None,
+        pagination_token: str | None,
+    ) -> tuple[list[SocialPost], str | None]:
+        params: dict = {
+            "query": query,
+            "max_results": max(10, min(100, max_results)),
+            "end_time": _iso(window.before),
+            "tweet.fields": _TWEET_FIELDS,
+            "expansions": "author_id",
+            "user.fields": _USER_FIELDS,
+        }
+        if window.api_start_time:
+            params["start_time"] = _iso(window.after)
+        if since_id:
+            params["since_id"] = since_id
+        if pagination_token:
+            params["next_token"] = pagination_token
+
+        try:
+            resp = self.session.get(
+                f"{_API_BASE}/tweets/search/recent",
+                params=params,
+                headers=self._auth_headers(),
+                auth=self._oauth1_auth(),
+                timeout=45,
+            )
+            if resp.status_code != 200:
+                stats.pages_skipped += 1
+                return [], None
+            payload = resp.json()
+        except (requests.RequestException, ValueError, KeyError):
+            stats.pages_skipped += 1
+            return [], None
+
+        stats.pages_fetched += 1
+        page_posts = self._parse_search_results(payload)
+        next_token = payload.get("meta", {}).get("next_token")
+        return page_posts, next_token
+
+    @staticmethod
+    def _parse_search_results(payload: dict) -> list[SocialPost]:
+        users = {
+            str(user.get("id") or ""): str(user.get("username") or "").lower()
+            for user in (payload.get("includes") or {}).get("users") or []
+        }
+        posts: list[SocialPost] = []
+        for tweet in payload.get("data") or []:
+            author_id = str(tweet.get("author_id") or "")
+            screen_name = users.get(author_id) or ""
+            post = _tweet_v2_to_post(tweet, screen_name)
+            if post is not None:
+                posts.append(post)
+        return posts
+
     def _resolve_user_id(self, screen_name: str, stats: FetchStats) -> str | None:
         username = screen_name.lstrip("@")
         try:
