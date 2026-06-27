@@ -30,6 +30,8 @@
 
 **定时账号**（与 GitHub Actions `scan-mysql.yml` 一致）：`aleabitoreddit`, `elonmusk`, `mingchikuo`。
 
+**停止关注账号**：`sunyuchentron` / `justinsuntron` 已从后续抓取和 AI 定时关注范围移除。基于过去 180 天数据，该账号几乎只讨论加密货币，不符合本项目股票-only 范围；MySQL 旧数据保留，不做清理。
+
 ### 增量断点规范（两种 Agent 均须遵守）
 
 1. **启动前读断点**：从 `stock_detect_ai_runs` 读取该账号上一次成功结束的 `checkpoint_*`，作为本次 `resume_from_*`。
