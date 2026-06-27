@@ -19,6 +19,8 @@
 
 从 MySQL `cache_data` 库的 `stock_detect_x_posts` 表 **增量** 读取 X/Twitter 推文，做语义级 Signals / Consensus / Top Tickers 分析，写入 4 张 AI 表，并持久化断点供下次续跑。
 
+> **重要原则（v5.6 语义优先）**：本任务是 **AI 语义分析任务**，不要把语义判断下沉成 Python/SQL 关键词规则或机械化脚本。脚本只负责 MySQL 读写、断点、幂等与 JSON 组装；`recommendation`、`confidence`、`reasoning`、Ticker 是否应映射，必须尽量由 AI 直接阅读 `stock_detect_x_posts.text` 原文后判断。代码可以用于分页、格式化、去重、候选检索和写表，但不能替代 AI 对近义词、反讽、上下文、行业语境、公司/产品歧义的理解。
+
 | 表 | 用途 |
 |----|------|
 | `stock_detect_ai_runs` | 每次 run 的元数据 + 断点（resume_from / checkpoint） |
@@ -78,6 +80,15 @@
 **elonmusk 校准**：confidence 整体下调 0.1；里程碑事件才给 TSLA buy 0.55+；纯社交 → neutral 0.4。
 
 **硬性规则**：reasoning 中文；summary 末尾带「仅供参考，非投资建议」；`prompt_version` 固定 `openclaw-v5.5`；时间 UTC。
+
+### 股票-only 边界
+
+本项目关注 **股票/上市公司/可交易股票 ETF**，默认不分析加密货币本身。
+
+- 加密货币、稳定币、链上 token、memecoin、交易所上币、链上治理票据等（如 BTC/ETH/TRX/USDT/USDD/WLFI 等）不要写入 AI signals。
+- 若博文提到加密支付、链上基础设施或 Web3 产品，同时明确出现上市公司（如 Mastercard、Google、Coinbase、Robinhood、MicroStrategy 等），只可对对应股票 ticker 写入信号。
+- 这类股票信号通常是业务/合作/供应商语境，若没有明确业绩、估值、股价或投资观点，推荐写 `neutral`，并在 reasoning 里说明“已排除加密资产，仅保留股票语境”。
+- 不要因为出现 `$TRX`、`Bitcoin`、`stablecoin`、`token` 等加密关键词而映射股票；也不要把加密 token 伪装成股票 ticker 写入。
 
 ---
 
@@ -227,6 +238,8 @@ LIMIT 20;
 
 只负责读写 MySQL，**不做语义分析**（语义由本地 AI 完成）。密码从 `.env` 的 `MYSQL_PASSWORD` 读取。
 
+**执行约束**：本地手动补跑时，优先让 AI 直接读取 `fetch` 输出的每条博文原文并做语义判断；不要新增“关键词命中就 buy/sell/neutral”的自动分析脚本来替代 AI。可以使用脚本做候选检索、分页、统计、JSON 写入，但最终进入 `signals` 的 ticker、recommendation、confidence、reasoning 应由 AI 基于原文上下文确认。
+
 | 子命令 | 作用 |
 |--------|------|
 | `sync` | 同步 AI 四表结构（首次必须先跑） |
@@ -265,6 +278,8 @@ LIMIT 20;
 ```
 
 ### 语义判断承载脚本（可选）
+
+这些脚本只适合历史补跑或低风险辅助，不能作为新增账号的默认分析方式。新增账号或争议账号应采用 **AI 直接读 MySQL/fetch 数据 → 人工语义式判断 → write-run** 的流程；若使用脚本生成候选，必须由 AI 再次审核并过滤掉不属于股票范围的标的。
 
 | 脚本 | 账号 |
 |------|------|
