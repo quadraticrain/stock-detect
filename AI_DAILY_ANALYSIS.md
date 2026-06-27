@@ -96,12 +96,14 @@
 
 ## 二、OpenClaw 自动执行
 
+> **注意**：本节调度仅指 **OpenClaw AI 舆情分析**（`stock-detect-ai-analysis`），**不包含** GitHub Actions 的 X 抓取 workflow（`scan-mysql.yml`，仍为北京时间 09:00）。
+
 ### 调度配置
 
 | 项 | 值 |
 |----|-----|
 | 任务名 | `stock-detect-ai-analysis` |
-| 执行时间 | 每天 **北京时间 23:00**（建议在 CI 抓取 09:00 之后） |
+| 执行时间 | 每天 **北京时间 23:00**（OpenClaw AI 任务；CI 抓取 09:00 不变） |
 | 时区 | `Asia/Shanghai` |
 | Cron | `0 23 * * *` |
 | 环境变量 | `MYSQL_PASSWORD`（必填） |
