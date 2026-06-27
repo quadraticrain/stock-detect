@@ -8,7 +8,7 @@
 
 ## 定时任务概览
 
-生产环境由两个定时任务配合：**GitHub Actions 负责抓 X 推文入库**，**OpenClaw 负责读库做 AI 语义分析**。
+生产环境由两个**独立**定时任务配合：**GitHub Actions 负责抓 X 推文入库（09:00）**，**OpenClaw 负责读库做 AI 语义分析（23:00）**。二者调度互不影响。
 
 ### X 数据抓取（`scan-mysql.yml`）
 
@@ -49,12 +49,14 @@ gh workflow run scan-mysql.yml \
 
 | 项 | 值 |
 |----|-----|
-| 调度 | 每天 **北京时间 13:00**（建议在 CI 09:00 抓取之后） |
+| 调度 | 每天 **北京时间 23:00**（OpenClaw 任务；GitHub Actions 抓取仍为 09:00） |
 | 输入 | MySQL `stock_detect_x_posts`（**增量断点**续跑，不重复分析已处理帖） |
 | 输出 | `stock_detect_ai_runs`、`stock_detect_ai_signals`、`stock_detect_ai_consensus`、`stock_detect_ai_top_tickers` |
 | 与关键词报告的区别 | GolangCalculateServer 报告用固定词表；**AI 任务做自然语言语义分析**（buy/hold/sell/neutral、共识、热门 ticker） |
 
 OpenClaw 与本地手动为 **同一 AI 任务**（仅 Agent 不同），完整规范见 [`AI_DAILY_ANALYSIS.md`](AI_DAILY_ANALYSIS.md)（含 OpenClaw Prompt 与 `scripts/ai_analysis_helper.py` 手动流程）。
+
+AI 增量分析完成后，可运行 `scripts/detect_new_tickers.py` 批量检测各博主近 24 小时**首次提到**的股票，并通过 Bark 推送到手机（推送内容标注博主）。
 
 ## 信号源优先级
 

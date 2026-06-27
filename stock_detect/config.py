@@ -101,10 +101,19 @@ MYSQL_TABLE_AI_SIGNALS = f"{MYSQL_SERVICE}_ai_signals"
 MYSQL_TABLE_AI_CONSENSUS = f"{MYSQL_SERVICE}_ai_consensus"
 MYSQL_TABLE_AI_TOP_TICKERS = f"{MYSQL_SERVICE}_ai_top_tickers"
 
-# OpenClaw AI analysis schedule — daily 13:00 Beijing (Asia/Shanghai)
+# OpenClaw AI analysis schedule — daily 23:00 Beijing (Asia/Shanghai)
 AI_ANALYSIS_TIMEZONE = "Asia/Shanghai"
-AI_ANALYSIS_CRON_BEIJING = "0 13 * * *"   # 13:00 every day, use with timezone above
-AI_ANALYSIS_CRON_UTC = "0 5 * * *"        # equivalent when scheduler runs in UTC
+AI_ANALYSIS_CRON_BEIJING = "0 23 * * *"   # 23:00 every day, use with timezone above
+AI_ANALYSIS_CRON_UTC = "0 15 * * *"       # equivalent when scheduler runs in UTC
+
+# New-ticker Bark alerts (run after daily AI incremental analysis)
+BARK_PUSH_URL = "https://api.day.app/CXFgAnMVdZXTPvsKRgWKFo"
+NEW_TICKER_LOOKBACK_HOURS = 24
+
+
+def active_scheduled_x_accounts() -> tuple[str, ...]:
+    """CI scheduled accounts minus explicitly disabled slugs."""
+    return tuple(a for a in CI_SCHEDULED_X_ACCOUNTS if a not in DISABLED_X_ACCOUNTS)
 
 # X API timeline: exclude retweets only (includes replies + originals; single pass)
 X_API_TIMELINE_EXCLUDES = ("retweets",)

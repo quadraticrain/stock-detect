@@ -559,23 +559,52 @@ class TweetCache:
         inserted, _ = self.insert_posts_batch(posts, skip_existing=False)
         return inserted
 
-    def list_posts(self, account: str, window: FetchWindow) -> list[SocialPost]:
-        account = account.lstrip("@").lower()
-        after = window.after.astimezone(timezone.utc).replace(tzinfo=None)
-        before = window.before.astimezone(timezone.utc).replace(tzinfo=None)
+    def list_posts_for_accounts(
+        self,
+        accounts: list[str],
+        *,
+        created_after: datetime | None = None,
+        created_before: datetime | None = None,
+    ) -> list[SocialPost]:
+        """Batch-fetch posts for multiple accounts with optional created_at bounds."""
+        slugs = [a.lstrip("@").lower() for a in accounts if a.strip()]
+        if not slugs:
+            return []
+
+        clauses = [
+            f"author IN ({', '.join(['%s'] * len(slugs))})",
+            "source <> 'ci_marker'",
+            f"post_id NOT LIKE '{CI_MARKER_POST_PREFIX}%'",
+        ]
+        params: list = list(slugs)
+        if created_after is not None:
+            if created_after.tzinfo is not None:
+                created_after = created_after.astimezone(timezone.utc).replace(tzinfo=None)
+            clauses.append("created_at >= %s")
+            params.append(created_after)
+        if created_before is not None:
+            if created_before.tzinfo is not None:
+                created_before = created_before.astimezone(timezone.utc).replace(tzinfo=None)
+            clauses.append("created_at < %s")
+            params.append(created_before)
+
+        where = " AND ".join(clauses)
         with self._connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     f"""
                     SELECT post_id, author, text, created_at, score, url, tickers, source
                     FROM {MYSQL_TABLE_POSTS}
-                    WHERE author = %s AND created_at >= %s AND created_at <= %s
-                      AND post_id NOT LIKE %s
-                    ORDER BY created_at DESC
+                    WHERE {where}
+                    ORDER BY author ASC, created_at ASC, post_id ASC
                     """,
-                    (account, after, before, f"{CI_MARKER_POST_PREFIX}%"),
+                    params,
                 )
                 rows = cur.fetchall()
+        return self._rows_to_posts(rows)
+
+    @staticmethod
+    def _rows_to_posts(rows: list[dict]) -> list[SocialPost]:
         posts: list[SocialPost] = []
         for row in rows:
             created = row["created_at"]
@@ -597,6 +626,25 @@ class TweetCache:
                 )
             )
         return posts
+
+    def list_posts(self, account: str, window: FetchWindow) -> list[SocialPost]:
+        account = account.lstrip("@").lower()
+        after = window.after.astimezone(timezone.utc).replace(tzinfo=None)
+        before = window.before.astimezone(timezone.utc).replace(tzinfo=None)
+        with self._connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"""
+                    SELECT post_id, author, text, created_at, score, url, tickers, source
+                    FROM {MYSQL_TABLE_POSTS}
+                    WHERE author = %s AND created_at >= %s AND created_at <= %s
+                      AND post_id NOT LIKE %s
+                    ORDER BY created_at DESC
+                    """,
+                    (account, after, before, f"{CI_MARKER_POST_PREFIX}%"),
+                )
+                rows = cur.fetchall()
+        return self._rows_to_posts(rows)
 
     def prune_before(self, account: str, cutoff: datetime) -> int:
         account = account.lstrip("@").lower()
