@@ -54,7 +54,7 @@ gh workflow run scan-mysql.yml \
 | 输出 | `stock_detect_ai_runs`、`stock_detect_ai_signals`、`stock_detect_ai_consensus`、`stock_detect_ai_top_tickers` |
 | 与关键词报告的区别 | GolangCalculateServer 报告用固定词表；**AI 任务做自然语言语义分析**（buy/hold/sell/neutral、共识、热门 ticker） |
 
-OpenClaw 任务规范与 Prompt 模板见 [`prompts/openclaw_daily_ai_analysis.md`](prompts/openclaw_daily_ai_analysis.md)。本地手动跑同一套增量流程（排障 / 补跑）见 [`AI_ANALYSIS_TOOLING.md`](AI_ANALYSIS_TOOLING.md) 与 `scripts/ai_analysis_helper.py`（`sync` → `fetch` → AI 分析 → `write-run`）。
+OpenClaw 与本地手动为 **同一 AI 任务**（仅 Agent 不同），完整规范见 [`AI_DAILY_ANALYSIS.md`](AI_DAILY_ANALYSIS.md)（含 OpenClaw Prompt 与 `scripts/ai_analysis_helper.py` 手动流程）。
 
 ## 信号源优先级
 
