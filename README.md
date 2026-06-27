@@ -6,6 +6,56 @@
 
 因此本工具 **默认扫描 X/Twitter**，WSB 作为可选补充源。
 
+## 定时任务概览
+
+生产环境由两个定时任务配合：**GitHub Actions 负责抓 X 推文入库**，**OpenClaw 负责读库做 AI 语义分析**。
+
+### X 数据抓取（`scan-mysql.yml`）
+
+Workflow 文件：`.github/workflows/scan-mysql.yml`
+
+| 项 | 值 |
+|----|-----|
+| 定时 | 每天 **北京时间 09:00** 自动运行 |
+| 默认账号 | `aleabitoreddit`, `elonmusk`, `mingchikuo` |
+| 默认窗口 | **63 天**（X API 可读范围；更早历史需 Guest 回填） |
+| 写入 | MySQL `stock_detect_x_posts`、`stock_detect_x_fetch_state` |
+| 所需 Secret | `MYSQL_PASSWORD`、`X_BEARER_TOKEN` |
+
+**手动触发**（Actions → *Scan MySQL (X fetch)* → Run workflow，或命令行）：
+
+```bash
+# 日常增量 / 单账号 63 天
+gh workflow run scan-mysql.yml \
+  --repo quadraticrain/stock-detect \
+  -f accounts=aleabitoreddit
+
+# 新账号或历史回填：180 天（CI 会自动放大 max_posts / max_pages，并先 Guest 回填 63 天以前）
+gh workflow run scan-mysql.yml \
+  --repo quadraticrain/stock-detect \
+  -f accounts=justinsuntron \
+  -f window_days=180
+```
+
+多账号依次拉取（等上一个 run 完成再触发下一个，避免 workflow 互相取消）：
+
+```bash
+./scripts/sequential_fetch_180d.sh justinsuntron aleabitoreddit
+```
+
+查看进度：`gh run list --repo quadraticrain/stock-detect --workflow=scan-mysql.yml --limit 3`
+
+### AI 舆情分析（OpenClaw）
+
+| 项 | 值 |
+|----|-----|
+| 调度 | 每天 **北京时间 13:00**（建议在 CI 09:00 抓取之后） |
+| 输入 | MySQL `stock_detect_x_posts`（**增量断点**续跑，不重复分析已处理帖） |
+| 输出 | `stock_detect_ai_runs`、`stock_detect_ai_signals`、`stock_detect_ai_consensus`、`stock_detect_ai_top_tickers` |
+| 与关键词报告的区别 | GolangCalculateServer 报告用固定词表；**AI 任务做自然语言语义分析**（buy/hold/sell/neutral、共识、热门 ticker） |
+
+OpenClaw 任务规范与 Prompt 模板见 [`prompts/openclaw_daily_ai_analysis.md`](prompts/openclaw_daily_ai_analysis.md)。本地手动跑同一套增量流程（排障 / 补跑）见 [`AI_ANALYSIS_TOOLING.md`](AI_ANALYSIS_TOOLING.md) 与 `scripts/ai_analysis_helper.py`（`sync` → `fetch` → AI 分析 → `write-run`）。
+
 ## 信号源优先级
 
 | 优先级 | 来源 | 说明 |
@@ -220,7 +270,7 @@ stock_detect/
 
 ## CI 扫描（MySQL）
 
-CI 每天 **北京时间 09:00** 自动拉取 X 时间线写入 MySQL；也可在 Actions 里 **手动触发**（`workflow_dispatch`）。报告页面已迁移至 [GolangCalculateServer](https://github.com/quadraticrain/GolangCalculateServer) 的 `web/public/stock-detect/`，由后端 API 从 MySQL 实时生成。
+详见上文 **[定时任务概览 → X 数据抓取](#定时任务概览)**。CI 每天 **北京时间 09:00** 自动拉取 X 时间线写入 MySQL；也可 `gh workflow run scan-mysql.yml` 手动触发。报告页面已迁移至 [GolangCalculateServer](https://github.com/quadraticrain/GolangCalculateServer) 的 `web/public/stock-detect/`，由后端 API 从 MySQL 实时生成。
 
 本地仅分析缓存（不拉取）：
 
