@@ -158,6 +158,23 @@ class TweetCacheTests(unittest.TestCase):
         self.assertEqual(posts[0].id, "100")
         self.assertEqual(posts[0].tickers, ["AAPL"])
 
+    @patch("stock_detect.tweet_cache.pymysql.connect")
+    def test_list_posts_for_accounts_parameterizes_ci_marker_like(self, mock_connect):
+        conn = MagicMock()
+        cursor = MagicMock()
+        cursor.fetchall.return_value = []
+        conn.cursor.return_value.__enter__.return_value = cursor
+        mock_connect.return_value = conn
+
+        cache = TweetCache(password="secret")
+        posts = cache.list_posts_for_accounts(["demo"])
+
+        self.assertEqual(posts, [])
+        sql, params = cursor.execute.call_args[0]
+        self.assertIn("post_id NOT LIKE %s", sql)
+        self.assertNotIn("###CI_SCAN_%'", sql)
+        self.assertEqual(params, ["demo", "###CI_SCAN_%"])
+
     def test_unavailable_without_password(self):
         cache = TweetCache(password="")
         self.assertFalse(cache.available)

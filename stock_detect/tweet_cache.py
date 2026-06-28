@@ -574,9 +574,9 @@ class TweetCache:
         clauses = [
             f"author IN ({', '.join(['%s'] * len(slugs))})",
             "source <> 'ci_marker'",
-            f"post_id NOT LIKE '{CI_MARKER_POST_PREFIX}%'",
+            "post_id NOT LIKE %s",
         ]
-        params: list = list(slugs)
+        params: list = [*slugs, f"{CI_MARKER_POST_PREFIX}%"]
         if created_after is not None:
             if created_after.tzinfo is not None:
                 created_after = created_after.astimezone(timezone.utc).replace(tzinfo=None)
