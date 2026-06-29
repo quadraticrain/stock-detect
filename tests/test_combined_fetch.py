@@ -108,6 +108,29 @@ class CombinedFetchTests(unittest.TestCase):
         self.assertEqual(len(posts), 2)
         self.assertEqual(cache.record_ci_scan.call_count, 2)
 
+    def test_combined_incremental_uses_since_id_without_time_window(self):
+        fetcher = TwitterFetcher()
+        fetcher.x_api.iter_search_recent_pages = MagicMock(return_value=iter([]))  # type: ignore[method-assign]
+        window = FetchWindow(
+            after=datetime(2026, 4, 19, tzinfo=timezone.utc),
+            before=datetime(2026, 6, 21, tzinfo=timezone.utc),
+        )
+        cache = MagicMock()
+
+        fetcher._fetch_combined_incremental(
+            [("elonmusk", "900", "1"), ("mingchikuo", "800", "2")],
+            window=window,
+            max_pages=1,
+            max_posts=100,
+            stats=FetchStats(),
+            cache=cache,
+        )
+
+        call_window = fetcher.x_api.iter_search_recent_pages.call_args.kwargs["window"]
+        self.assertFalse(call_window.api_start_time)
+        self.assertEqual(call_window.after, window.after)
+        self.assertEqual(call_window.before, window.before)
+
 
 class XApiSearchTests(unittest.TestCase):
     def test_iter_search_recent_pages_parses_authors(self):
@@ -157,6 +180,38 @@ class XApiSearchTests(unittest.TestCase):
         self.assertIn("from:justinsuntron OR from:elonmusk", call_params["query"])
         self.assertEqual(call_params["since_id"], "50")
         self.assertEqual(call_params["max_results"], 100)
+        self.assertIn("start_time", call_params)
+        self.assertIn("end_time", call_params)
+
+    def test_search_recent_with_since_id_can_omit_time_bounds(self):
+        creds = XApiCredentials(bearer_token="token")
+        client = XApiClient(credentials=creds)
+        window = FetchWindow(
+            after=datetime(2026, 4, 1, tzinfo=timezone.utc),
+            before=datetime(2026, 6, 1, tzinfo=timezone.utc),
+            api_start_time=False,
+        )
+        stats = FetchStats()
+
+        resp = MagicMock(status_code=200)
+        resp.json.return_value = {"data": [], "meta": {}}
+        client.session.get = MagicMock(return_value=resp)
+
+        list(
+            client.iter_search_recent_pages(
+                ["justinsuntron", "elonmusk"],
+                window=window,
+                max_pages=1,
+                max_posts=100,
+                stats=stats,
+                since_id="50",
+            )
+        )
+
+        call_params = client.session.get.call_args.kwargs["params"]
+        self.assertEqual(call_params["since_id"], "50")
+        self.assertNotIn("start_time", call_params)
+        self.assertNotIn("end_time", call_params)
 
 
 if __name__ == "__main__":

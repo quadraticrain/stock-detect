@@ -397,13 +397,13 @@ class XApiClient:
         params: dict = {
             "query": query,
             "max_results": max(10, min(100, max_results)),
-            "end_time": _iso(window.before),
             "tweet.fields": _TWEET_FIELDS,
             "expansions": "author_id",
             "user.fields": _USER_FIELDS,
         }
         if window.api_start_time:
             params["start_time"] = _iso(window.after)
+            params["end_time"] = _iso(window.before)
         if since_id:
             params["since_id"] = since_id
         if pagination_token:
