@@ -16,7 +16,7 @@ Workflow 文件：`.github/workflows/scan-mysql.yml`
 
 | 项 | 值 |
 |----|-----|
-| 定时 | 每天 **北京时间 22:00** 自动运行 |
+| 定时 | 每天 **北京时间 17:40** 自动运行 |
 | 默认账号 | `aleabitoreddit`, `elonmusk`, `mingchikuo` |
 | 默认窗口 | **63 天**（X API 可读范围；更早历史需 Guest 回填） |
 | 写入 | MySQL `stock_detect_x_posts`、`stock_detect_x_fetch_state` |
@@ -276,7 +276,7 @@ stock_detect/
 
 ## CI 扫描（MySQL）
 
-详见上文 **[定时任务概览 → X 数据抓取](#定时任务概览)**。CI 每天 **北京时间 22:00** 自动拉取 X 时间线写入 MySQL；也可 `gh workflow run scan-mysql.yml` 手动触发。报告页面已迁移至 [GolangCalculateServer](https://github.com/quadraticrain/GolangCalculateServer) 的 `web/public/stock-detect/`，由后端 API 从 MySQL 实时生成。
+详见上文 **[定时任务概览 → X 数据抓取](#定时任务概览)**。CI 每天 **北京时间 17:40** 自动拉取 X 时间线写入 MySQL；也可 `gh workflow run scan-mysql.yml` 手动触发。报告页面已迁移至 [GolangCalculateServer](https://github.com/quadraticrain/GolangCalculateServer) 的 `web/public/stock-detect/`，由后端 API 从 MySQL 实时生成。
 
 本地仅分析缓存（不拉取）：
 
