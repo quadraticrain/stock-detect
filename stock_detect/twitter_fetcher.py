@@ -430,9 +430,15 @@ class TwitterFetcher:
         }
 
         total_inserted = 0
+        search_window = FetchWindow(
+            after=window.after,
+            before=window.before,
+            window_days=window.window_days,
+            api_start_time=False,
+        )
         for page in self.x_api.iter_search_recent_pages(
             accounts,
-            window=window,
+            window=search_window,
             max_pages=max_pages,
             max_posts=max_posts,
             stats=stats,
