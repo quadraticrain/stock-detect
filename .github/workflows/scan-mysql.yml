@@ -2,7 +2,7 @@ name: Scan MySQL (X fetch)
 
 env:
   # Daily cron + workflow_dispatch default when accounts input is empty
-  SCHEDULED_ACCOUNTS: aleabitoreddit,elonmusk,mingchikuo,justinsuntron
+  SCHEDULED_ACCOUNTS: aleabitoreddit,mingchikuo,justinsuntron
 
 on:
   schedule:
@@ -10,9 +10,9 @@ on:
   workflow_dispatch:
     inputs:
       accounts:
-        description: "X accounts (comma-separated, e.g. elonmusk)"
+        description: "X accounts (comma-separated, e.g. aleabitoreddit)"
         required: false
-        default: "aleabitoreddit,elonmusk,mingchikuo,justinsuntron"
+        default: "aleabitoreddit,mingchikuo,justinsuntron"
         type: string
       window_days:
         description: "Lookback window in days (X API ~63; older via guest backfill)"
