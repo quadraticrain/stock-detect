@@ -74,7 +74,6 @@ DEFAULT_X_ACCOUNTS = [
 # GitHub Actions scheduled scan + OpenClaw AI analysis (comma-separated author slugs)
 CI_SCHEDULED_X_ACCOUNTS = (
     "aleabitoreddit",
-    "elonmusk",
     "mingchikuo",
     "justinsuntron",
 )
@@ -83,6 +82,7 @@ CI_SCHEDULED_X_ACCOUNTS_CSV = ",".join(CI_SCHEDULED_X_ACCOUNTS)
 # Accounts explicitly removed from future monitoring. Keep historical MySQL rows,
 # but ignore these accounts in scheduled/manual fetch entrypoints.
 DISABLED_X_ACCOUNTS = {
+    "elonmusk",
     "justinsuntron",
     "sunyuchentron",
 }

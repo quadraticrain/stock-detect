@@ -17,20 +17,19 @@ class CiScheduledAccountsTests(unittest.TestCase):
             CI_SCHEDULED_X_ACCOUNTS,
             (
                 "aleabitoreddit",
-                "elonmusk",
                 "mingchikuo",
                 "justinsuntron",
             ),
         )
         self.assertEqual(
             CI_SCHEDULED_X_ACCOUNTS_CSV,
-            "aleabitoreddit,elonmusk,mingchikuo,justinsuntron",
+            "aleabitoreddit,mingchikuo,justinsuntron",
         )
 
     def test_active_scheduled_accounts_excludes_disabled(self):
         self.assertEqual(
             active_scheduled_x_accounts(),
-            ("aleabitoreddit", "elonmusk", "mingchikuo"),
+            ("aleabitoreddit", "mingchikuo"),
         )
 
 
