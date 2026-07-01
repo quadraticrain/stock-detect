@@ -14,6 +14,7 @@ from stock_detect.models import SocialPost, sort_posts_chronological
 from stock_detect.post_tickers import tickers_from_text
 
 DUAN_YONGPING_USER_ID = "1247347556"
+DAN_BIN_USER_ID = "1102105103"
 XUEQIU_USER_AGENT = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
 
 
@@ -101,7 +102,9 @@ def _is_own_status(item: dict, fallback_author: str) -> bool:
     user = item.get("user") or {}
     if str(user.get("id") or item.get("user_id") or fallback_author) != str(fallback_author):
         return False
-    return not any(item.get(key) for key in ("retweeted_status", "retweeted_status_id"))
+    if any(item.get(key) for key in ("retweeted_status", "retweeted_status_id")):
+        return False
+    return fallback_author == DUAN_YONGPING_USER_ID or not item.get("in_reply_to_status_id")
 
 
 def _xueqiu_tickers(text: str) -> list[str]:
