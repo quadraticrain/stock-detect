@@ -19,7 +19,7 @@ from stock_detect.config import (  # noqa: E402
     BARK_PUSH_URL,
     CI_SCHEDULED_X_ACCOUNTS_CSV,
     NEW_TICKER_LOOKBACK_HOURS,
-    active_scheduled_x_accounts,
+    active_scheduled_social_accounts,
 )
 from stock_detect.env import bootstrap  # noqa: E402
 from stock_detect.new_ticker_alert import (  # noqa: E402
@@ -39,8 +39,8 @@ def main() -> int:
     )
     parser.add_argument(
         "--accounts",
-        default=",".join(active_scheduled_x_accounts()),
-        help=f"Comma-separated X slugs (default: active CI accounts, full list: {CI_SCHEDULED_X_ACCOUNTS_CSV})",
+        default=",".join(active_scheduled_social_accounts()),
+        help=f"Comma-separated author slugs (default: active CI accounts + Xueqiu, X list: {CI_SCHEDULED_X_ACCOUNTS_CSV})",
     )
     parser.add_argument(
         "--lookback-hours",
