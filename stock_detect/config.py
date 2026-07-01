@@ -78,6 +78,8 @@ CI_SCHEDULED_X_ACCOUNTS = (
     "justinsuntron",
 )
 CI_SCHEDULED_X_ACCOUNTS_CSV = ",".join(CI_SCHEDULED_X_ACCOUNTS)
+CI_SCHEDULED_XUEQIU_USERS = ("1247347556",)  # 段永平
+CI_SCHEDULED_XUEQIU_ACCOUNTS = tuple(f"xueqiu:{user}" for user in CI_SCHEDULED_XUEQIU_USERS)
 
 # Accounts explicitly removed from future monitoring. Keep historical MySQL rows,
 # but ignore these accounts in scheduled/manual fetch entrypoints.
@@ -114,6 +116,10 @@ NEW_TICKER_LOOKBACK_HOURS = 24
 def active_scheduled_x_accounts() -> tuple[str, ...]:
     """CI scheduled accounts minus explicitly disabled slugs."""
     return tuple(a for a in CI_SCHEDULED_X_ACCOUNTS if a not in DISABLED_X_ACCOUNTS)
+
+
+def active_scheduled_social_accounts() -> tuple[str, ...]:
+    return active_scheduled_x_accounts() + CI_SCHEDULED_XUEQIU_ACCOUNTS
 
 # X API timeline: exclude retweets only (includes replies + originals; single pass)
 X_API_TIMELINE_EXCLUDES = ("retweets",)

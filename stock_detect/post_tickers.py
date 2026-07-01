@@ -24,7 +24,7 @@ def resolve_post_tickers(post: SocialPost) -> list[str]:
             continue
         seen.add(ticker)
         ordered.append(ticker)
-    if post.source == "x":
+    if post.source in {"x", "xueqiu"}:
         for ticker in tickers_from_text(post.text):
             if ticker not in seen:
                 seen.add(ticker)

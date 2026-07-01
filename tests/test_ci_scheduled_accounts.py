@@ -7,6 +7,9 @@ import unittest
 from stock_detect.config import (
     CI_SCHEDULED_X_ACCOUNTS,
     CI_SCHEDULED_X_ACCOUNTS_CSV,
+    CI_SCHEDULED_XUEQIU_ACCOUNTS,
+    CI_SCHEDULED_XUEQIU_USERS,
+    active_scheduled_social_accounts,
     active_scheduled_x_accounts,
 )
 
@@ -30,6 +33,14 @@ class CiScheduledAccountsTests(unittest.TestCase):
         self.assertEqual(
             active_scheduled_x_accounts(),
             ("aleabitoreddit", "mingchikuo"),
+        )
+
+    def test_active_scheduled_social_accounts_includes_xueqiu(self):
+        self.assertEqual(CI_SCHEDULED_XUEQIU_USERS, ("1247347556",))
+        self.assertEqual(CI_SCHEDULED_XUEQIU_ACCOUNTS, ("xueqiu:1247347556",))
+        self.assertEqual(
+            active_scheduled_social_accounts(),
+            ("aleabitoreddit", "mingchikuo", "xueqiu:1247347556"),
         )
 
 

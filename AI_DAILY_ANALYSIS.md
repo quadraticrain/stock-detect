@@ -1,4 +1,4 @@
-# stock-detect 每日 AI 舆情分析（openclaw-v5.5）
+# stock-detect 每日 AI 舆情分析（openclaw-v5.6）
 
 > **这是同一个定时任务**——从 MySQL 增量读 X 推文 → 语义分析 → 写入四张 AI 表 → 保存断点。  
 > 区别仅在于 **由哪个 AI Agent 执行**：
@@ -11,13 +11,13 @@
 > 任务逻辑、断点机制、Ticker 映射、态度分级对两种方式 **完全相同**。  
 > 与关键词报告的区别：GolangCalculateServer `/api/stock-detect/report` 使用死板词表；**本任务做自然语言语义分析**。
 
-**版本变更（v5.5）**：定时账号为 2 位：`aleabitoreddit`, `mingchikuo`（已移除发帖量过低或长期无更新的账号）。
+**版本变更（v5.6）**：定时账号为 3 位：`aleabitoreddit`, `mingchikuo`, `xueqiu:1247347556`（段永平雪球）。
 
 ---
 
 ## 一、任务背景（共用）
 
-从 MySQL `cache_data` 库的 `stock_detect_x_posts` 表 **增量** 读取 X/Twitter 推文，做语义级 Signals / Consensus / Top Tickers 分析，写入 4 张 AI 表，并持久化断点供下次续跑。
+从 MySQL `cache_data` 库的 `stock_detect_x_posts` 表 **增量** 读取 X/Twitter 与雪球帖子，做语义级 Signals / Consensus / Top Tickers 分析，写入 4 张 AI 表，并持久化断点供下次续跑。
 
 > **重要原则（v5.6 语义优先）**：本任务是 **AI 语义分析任务**，不要把语义判断下沉成 Python/SQL 关键词规则或机械化脚本。脚本只负责 MySQL 读写、断点、幂等与 JSON 组装；`recommendation`、`confidence`、`reasoning`、Ticker 是否应映射，必须尽量由 AI 直接阅读 `stock_detect_x_posts.text` 原文后判断。代码可以用于分页、格式化、去重、候选检索和写表，但不能替代 AI 对近义词、反讽、上下文、行业语境、公司/产品歧义的理解。
 
@@ -28,7 +28,7 @@
 | `stock_detect_ai_consensus` | 按 (日期, ticker) 聚合的共识信号 |
 | `stock_detect_ai_top_tickers` | 按 run 排名的热门 ticker |
 
-**定时账号**（与 GitHub Actions `scan-mysql.yml` 一致）：`aleabitoreddit`, `mingchikuo`。
+**定时账号**（与 GitHub Actions `scan-mysql.yml` 一致）：`aleabitoreddit`, `mingchikuo`, `xueqiu:1247347556`。
 
 **停止关注账号**：`elonmusk` 已从每日股票-only 定时关注范围移除；`sunyuchentron` / `justinsuntron` 也已从后续抓取和 AI 定时关注范围移除。MySQL 旧数据保留，不做清理。
 
@@ -56,6 +56,7 @@
 |------|------|-------------|
 | `aleabitoreddit` | 半导体/AI 基础设施投资博主 | 显式 `$TICKER` 为主。**主题篮子**：Neocloud（NBIS/CRWV/IREN/WULF/CIFR…）、InP 光子学（AXTI/LITE/COHR…）、国防无人机（AIRO/OSS/AVAV）、委内瑞拉（GRZ/CVX…）、算力连结（ALAB/CRDO/MRVL/AVGO/TSM…）。篮子内未点名成员也给 neutral context。 |
 | `mingchikuo` | 苹果供应链分析师 | 聚焦 **AAPL** 及供应链（TSM、QCOM 等）。以正文点名公司或 `$TICKER` 为主；无明确标的不臆造。 |
+| `xueqiu:1247347556` | 段永平雪球 | 只分析其本人原发与本人回帖。以雪球链接/入库 tickers（如 `SH600519`、`AAPL`）和正文公司名为主；中文闲聊无投资指向时写 neutral。 |
 
 ### Ticker 识别（6 类映射，按强度递减）
 
@@ -79,7 +80,7 @@
 | 中性/语境 | neutral | 0.35–0.5 | 仅对比/供应商提及 |
 
 
-**硬性规则**：reasoning 中文；summary 末尾带「仅供参考，非投资建议」；`prompt_version` 固定 `openclaw-v5.5`；时间 UTC。
+**硬性规则**：reasoning 中文；summary 末尾带「仅供参考，非投资建议」；`prompt_version` 固定 `openclaw-v5.6`；时间 UTC。
 
 ### 股票-only 边界
 
@@ -179,7 +180,7 @@ A 显式 $TICKER；B 公司名→ticker（SpaceX/xAI/Starlink→SPCX，Tesla→T
 
 ## 态度分级
 
-buy/hold/sell/neutral 四值；confidence 0.35–0.9。reasoning 中文；summary 末尾「仅供参考，非投资建议」。prompt_version: openclaw-v5.5
+buy/hold/sell/neutral 四值；confidence 0.35–0.9。reasoning 中文；summary 末尾「仅供参考，非投资建议」。prompt_version: openclaw-v5.6
 
 ## 执行步骤（每账号）
 
@@ -195,13 +196,13 @@ buy/hold/sell/neutral 四值；confidence 0.35–0.9。reasoning 中文；summar
 ### 用户 Prompt（User，每次定时触发）
 
 ```
-执行 stock-detect 每日 AI 舆情分析（openclaw-v5.5，增量断点续跑）。
+执行 stock-detect 每日 AI 舆情分析（openclaw-v5.6，增量断点续跑）。
 
-- 账号列表：aleabitoreddit, mingchikuo, justinsuntron
+- 账号列表：aleabitoreddit, mingchikuo, xueqiu:1247347556
 - mode：incremental（默认）
 - batch_limit：400
 - 当前 UTC：{{NOW_UTC}}
-- prompt_version：openclaw-v5.5
+- prompt_version：openclaw-v5.6
 
 对每个账号依次：
 1) 读 stock_detect_ai_runs 最新 checkpoint
@@ -217,7 +218,7 @@ buy/hold/sell/neutral 四值；confidence 0.35–0.9。reasoning 中文；summar
 python scripts/detect_new_tickers.py
 ```
 
-- 默认账号：`aleabitoreddit`, `mingchikuo`（已停用账号自动跳过）
+- 默认账号：`aleabitoreddit`, `mingchikuo`, `xueqiu:1247347556`（已停用 X 账号自动跳过）
 - 规则：近 24 小时推文中的 ticker，若该博主历史从未提及则推送
 - Bark：`https://api.day.app/CXFgAnMVdZXTPvsKRgWKFo`，标题/正文标注博主
 - 仅检测 `$TICKER` / 入库 tickers，不做 AI 语义映射
@@ -229,13 +230,13 @@ python scripts/detect_new_tickers.py
 -- 读断点
 SELECT checkpoint_post_id, checkpoint_post_created_at, status
 FROM stock_detect_ai_runs
-WHERE account IN ('aleabitoreddit', 'mingchikuo') AND checkpoint_post_id IS NOT NULL
+WHERE account IN ('aleabitoreddit', 'mingchikuo', 'xueqiu:1247347556') AND checkpoint_post_id IS NOT NULL
 ORDER BY analyzed_at DESC LIMIT 1;
 
 -- 确认无重复分析
 SELECT post_id, COUNT(DISTINCT run_id) AS runs
 FROM stock_detect_ai_signals
-WHERE account IN ('aleabitoreddit', 'mingchikuo')
+WHERE account IN ('aleabitoreddit', 'mingchikuo', 'xueqiu:1247347556')
 GROUP BY post_id
 HAVING runs > 1
 LIMIT 20;
@@ -280,7 +281,7 @@ LIMIT 20;
 {
   "run_id": "YYYYMMDDTHHMMSSZ_ai_{account}",
   "account": "...", "window_start": "...", "window_end": "...",
-  "post_count": 400, "model": "glm-5.2", "prompt_version": "openclaw-v5.5",
+  "post_count": 400, "model": "glm-5.2", "prompt_version": "openclaw-v5.6",
   "status": "partial|completed", "summary": "...",
   "resume_from_post_id": "...", "resume_from_created_at": "...",
   "checkpoint_post_id": "...", "checkpoint_post_created_at": "...",
