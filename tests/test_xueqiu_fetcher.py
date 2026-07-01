@@ -42,6 +42,37 @@ class XueqiuFetcherTests(unittest.TestCase):
         signals = extract_social_post_signals(post, None)
         self.assertEqual([signal.ticker for signal in signals], ["SH600519"])
 
+
+    def test_status_to_post_ignores_bare_letter_short_link_slug(self):
+        post = _status_to_post(
+            {
+                "id": 128,
+                "created_at": 1780300800000,
+                "text": '转自秦朔朋友圈：<a href="https://xueqiu.com/S/RBZ">网页链接</a>',
+                "user": {"id": 1102105103},
+            },
+            "1102105103",
+        )
+
+        self.assertIsNotNone(post)
+        assert post is not None
+        self.assertEqual(post.tickers, [])
+
+    def test_status_to_post_keeps_visible_letter_stock_anchor(self):
+        post = _status_to_post(
+            {
+                "id": 129,
+                "created_at": 1780300800000,
+                "text": '<a href="/S/AAPL">$苹果(AAPL)$</a> 创新高',
+                "user": {"id": 1102105103},
+            },
+            "1102105103",
+        )
+
+        self.assertIsNotNone(post)
+        assert post is not None
+        self.assertEqual(post.tickers, ["AAPL"])
+
     def test_status_to_post_skips_reposts_and_other_users(self):
         base = {"id": 125, "created_at": 1780300800000, "text": "买 $AAPL", "user": {"id": 1247347556}}
 
