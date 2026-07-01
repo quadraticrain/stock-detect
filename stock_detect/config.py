@@ -78,7 +78,7 @@ CI_SCHEDULED_X_ACCOUNTS = (
     "justinsuntron",
 )
 CI_SCHEDULED_X_ACCOUNTS_CSV = ",".join(CI_SCHEDULED_X_ACCOUNTS)
-CI_SCHEDULED_XUEQIU_USERS = ("1247347556",)  # 段永平
+CI_SCHEDULED_XUEQIU_USERS = ("1247347556", "1102105103")  # 段永平, 但斌
 CI_SCHEDULED_XUEQIU_ACCOUNTS = tuple(f"xueqiu:{user}" for user in CI_SCHEDULED_XUEQIU_USERS)
 
 # Accounts explicitly removed from future monitoring. Keep historical MySQL rows,

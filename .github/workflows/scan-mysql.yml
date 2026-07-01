@@ -3,7 +3,7 @@ name: Scan MySQL (X fetch)
 env:
   # Daily cron + workflow_dispatch default when accounts input is empty
   SCHEDULED_ACCOUNTS: aleabitoreddit,mingchikuo,justinsuntron
-  SCHEDULED_XUEQIU_USERS: "1247347556"
+  SCHEDULED_XUEQIU_USERS: "1247347556,1102105103"
 
 on:
   schedule:

@@ -17,10 +17,10 @@ Workflow 文件：`.github/workflows/scan-mysql.yml`
 | 项 | 值 |
 |----|-----|
 | 定时 | 每天 **北京时间 17:40** 自动运行 |
-| 默认账号 | `aleabitoreddit`, `mingchikuo` |
+| 默认账号 | `aleabitoreddit`, `mingchikuo`, `xueqiu:1247347556`（段永平雪球）, `xueqiu:1102105103`（但斌雪球） |
 | 默认窗口 | **63 天**（X API 可读范围；更早历史需 Guest 回填） |
 | 写入 | MySQL `stock_detect_x_posts`、`stock_detect_x_fetch_state` |
-| 所需 Secret | `MYSQL_PASSWORD`、`X_BEARER_TOKEN` |
+| 所需 Secret | `MYSQL_PASSWORD`、`X_BEARER_TOKEN`、`XUEQIU_COOKIE` |
 
 **手动触发**（Actions → *Scan MySQL (X fetch)* → Run workflow，或命令行）：
 
@@ -44,6 +44,15 @@ gh workflow run scan-mysql.yml \
 ```
 
 查看进度：`gh run list --repo quadraticrain/stock-detect --workflow=scan-mysql.yml --limit 3`
+
+雪球 Cookie 半自动刷新（本机浏览器保持雪球登录后执行）：
+
+```bash
+/Users/rainlu/Documents/work/stock-detect/scripts/sync_xueqiu_cookie_secret.py --dry-run
+/Users/rainlu/Documents/work/stock-detect/scripts/sync_xueqiu_cookie_secret.py --repo quadraticrain/stock-detect
+```
+
+脚本从本机 Chromium 系浏览器读取 `xueqiu.com` Cookie，并执行 `gh secret set XUEQIU_COOKIE`；不保存雪球账号密码。
 
 ### AI 舆情分析（OpenClaw）
 
@@ -128,6 +137,7 @@ MYSQL_PASSWORD=你的数据库密码
 |--------|------|
 | `MYSQL_PASSWORD` | MySQL 写账号密码 |
 | `X_BEARER_TOKEN` | X 官方 API Bearer Token（读推文必需，**勿写入代码**） |
+| `XUEQIU_COOKIE` | 雪球登录 Cookie（段永平/但斌雪球抓取；可用 `scripts/sync_xueqiu_cookie_secret.py` 更新） |
 
 报告 JSON 的 `fetch_stats` 会包含 `cache_posts`（窗口内缓存条数）与 `api_posts_new`（本次新写入条数）。`streams_used` 含 `MySQLCache`。
 

@@ -62,6 +62,20 @@ class XueqiuFetcherTests(unittest.TestCase):
 
         self.assertIsNotNone(post)
 
+    def test_status_to_post_skips_non_duan_replies(self):
+        post = _status_to_post(
+            {
+                "id": 127,
+                "created_at": 1780300800000,
+                "text": "回帖里提到 $AAPL",
+                "user": {"id": 1102105103},
+                "in_reply_to_status_id": 1,
+            },
+            "1102105103",
+        )
+
+        self.assertIsNone(post)
+
 
 if __name__ == "__main__":
     unittest.main()
