@@ -22,6 +22,22 @@ class NewTickerHit:
     created_at: datetime
 
 
+AUTHOR_DISPLAY_NAMES = {
+    "xueqiu:1102105103": "但斌",
+    "xueqiu:1247347556": "段永平",
+    "elonmusk": "埃隆·马斯克",
+    "aleabitoreddit": "白毛股神",
+    "mingchikuo": "郭明錤",
+    "justinsuntron": "孙宇晨",
+}
+
+
+def format_author(author: str) -> str:
+    normalized = author.lower().lstrip("@")
+    name = AUTHOR_DISPLAY_NAMES.get(normalized)
+    return f"{name} (@{normalized})" if name else f"@{normalized}"
+
+
 def prior_tickers_by_author(posts: list[SocialPost]) -> dict[str, set[str]]:
     """Aggregate resolved tickers per author from historical posts."""
     out: dict[str, set[str]] = {}
@@ -82,13 +98,13 @@ def load_new_ticker_hits(
 
 
 def format_bark_title(hit: NewTickerHit) -> str:
-    return f"@{hit.author} 新提到 ${hit.ticker}"
+    return f"{format_author(hit.author)} 新提到 ${hit.ticker}"
 
 
 def format_bark_body(hit: NewTickerHit) -> str:
     created = hit.created_at.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     lines = [
-        f"博主 @{hit.author} 近 24 小时首次提到 ${hit.ticker}",
+        f"博主 {format_author(hit.author)} 近 24 小时首次提到 ${hit.ticker}",
         f"发帖时间: {created}",
     ]
     if hit.post_url:
