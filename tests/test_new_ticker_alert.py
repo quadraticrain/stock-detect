@@ -71,9 +71,18 @@ class NewTickerAlertTests(unittest.TestCase):
             [_post("r1", "mingchikuo", "$AAPL", tickers=["AAPL"])],
             [],
         )[0]
+        self.assertIn("郭明錤", format_bark_title(hit))
         self.assertIn("mingchikuo", format_bark_title(hit))
         self.assertIn("mingchikuo", format_bark_body(hit))
         self.assertIn("$AAPL", format_bark_title(hit))
+
+    def test_bark_format_maps_xueqiu_author(self):
+        hit = detect_new_ticker_hits(
+            [_post("r1", "xueqiu:1247347556", "$AAPL", tickers=["AAPL"])],
+            [],
+        )[0]
+        self.assertIn("段永平", format_bark_title(hit))
+        self.assertIn("@xueqiu:1247347556", format_bark_body(hit))
 
     @patch("stock_detect.new_ticker_alert.requests.post")
     def test_push_bark_alert_posts_json(self, mock_post):
