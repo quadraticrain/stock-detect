@@ -3,6 +3,7 @@ name: Scan MySQL (X fetch)
 env:
   # Daily cron + workflow_dispatch default when accounts input is empty
   SCHEDULED_ACCOUNTS: aleabitoreddit,mingchikuo,justinsuntron
+  SCHEDULED_XUEQIU_USERS: "1247347556"
 
 on:
   schedule:
@@ -91,6 +92,17 @@ jobs:
             --limit "${{ steps.caps.outputs.max_posts }}" \
             --max-pages "${{ steps.caps.outputs.max_pages }}"
 
+      - name: Fetch Xueqiu into MySQL
+        env:
+          MYSQL_PASSWORD: ${{ secrets.MYSQL_PASSWORD }}
+          XUEQIU_COOKIE: ${{ secrets.XUEQIU_COOKIE }}
+        run: |
+          python scripts/fetch_xueqiu.py \
+            --users "${{ env.SCHEDULED_XUEQIU_USERS }}" \
+            --window-days "${{ github.event.inputs.window_days || '63' }}" \
+            --limit "${{ steps.caps.outputs.max_posts }}" \
+            --max-pages "${{ steps.caps.outputs.max_pages }}"
+
       - name: MySQL coverage report
         env:
           MYSQL_PASSWORD: ${{ secrets.MYSQL_PASSWORD }}
@@ -98,3 +110,25 @@ jobs:
           python scripts/mysql_coverage.py \
             --accounts "${{ github.event.inputs.accounts || env.SCHEDULED_ACCOUNTS }}" \
             --window-days "${{ github.event.inputs.window_days || '63' }}"
+
+      - name: Notify Bark on failure
+        if: failure()
+        env:
+          BARK_PUSH_URL: https://api.day.app/CXFgAnMVdZXTPvsKRgWKFo
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          python - <<'PY'
+          import os
+          import requests
+
+          requests.post(
+              os.environ["BARK_PUSH_URL"],
+              json={
+                  "title": "stock-detect 每日抓取失败",
+                  "body": f"雪球/X 抓取失败，可能需要刷新 XUEQIU_COOKIE。{os.environ['RUN_URL']}",
+                  "group": "stock-detect",
+                  "level": "timeSensitive",
+              },
+              timeout=15,
+          ).raise_for_status()
+          PY

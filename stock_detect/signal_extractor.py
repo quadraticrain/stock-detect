@@ -215,8 +215,8 @@ def extract_social_post_signals(
         valid_tickers,
         source=post.source,
         author=post.author,
-        known_tickers=resolve_post_tickers(post) if post.source == "x" else None,
-        all_cashtags=all_cashtags or post.source == "x",
+        known_tickers=resolve_post_tickers(post) if post.source in {"x", "xueqiu"} else None,
+        all_cashtags=all_cashtags or post.source in {"x", "xueqiu"},
         use_proximity=use_proximity,
     )
 

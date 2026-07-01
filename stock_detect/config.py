@@ -78,6 +78,7 @@ CI_SCHEDULED_X_ACCOUNTS = (
     "justinsuntron",
 )
 CI_SCHEDULED_X_ACCOUNTS_CSV = ",".join(CI_SCHEDULED_X_ACCOUNTS)
+CI_SCHEDULED_XUEQIU_USERS = ("1247347556",)  # 段永平
 
 # Accounts explicitly removed from future monitoring. Keep historical MySQL rows,
 # but ignore these accounts in scheduled/manual fetch entrypoints.
