@@ -110,7 +110,12 @@ def _is_own_status(item: dict, fallback_author: str) -> bool:
 def _xueqiu_tickers(text: str) -> list[str]:
     upper = unescape(text).upper()
     tickers = set(tickers_from_text(upper))
-    tickers.update(match.group(1) for match in re.finditer(r"/S/((?:SH|SZ|HK)?\d{4,6}|[A-Z]{1,5})\b", upper))
+
+    # Xueqiu uses /S/<code> for stock links, but generic short links can also
+    # look like /S/RBZ.  Do not trust a bare all-letter /S/ slug as a stock:
+    # keep letter tickers only when they are visible in the post text as a
+    # cashtag or as Xueqiu's displayed $Name(TICKER)$ stock anchor.
+    tickers.update(match.group(1) for match in re.finditer(r"/S/((?:SH|SZ|HK)?\d{4,6})\b", upper))
     tickers.update(match.group(1) for match in re.finditer(r"\$[^$()]*\(((?:SH|SZ|HK)?\d{4,6}|[A-Z]{1,5})\)\$", upper))
     tickers.update(match.group(1) for match in re.finditer(r"\$((?:SH|SZ|HK)\d{4,6}|[A-Z]{1,5})\$", upper))
     return sorted(tickers)
