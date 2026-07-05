@@ -1,0 +1,7 @@
+账号                           中文名           身份/领域                    备注
+@xueqiu:1102105103              但斌            知名私募投资人、雪球大V        原发+转发文章及评论均纳入（v5.8）
+@xueqiu:1247347556              段永平          投资大佬、OPPO/vivo操盘手      原发+回帖+转发文章及评论均纳入（v5.8）
+@elonmusk                      埃隆·马斯克       SpaceX/Starlink/Tesla掌门人    已于v5.7移除定时关注
+@aleabitoreddit                 —               半导体/AI基础设施投资博主       主题篮子（Neocloud/光子学/无人机）
+@mingchikuo                    郭明錤           苹果供应链分析师                聚焦AAPL及供应链
+@justinsuntron                 孙宇晨           加密货币/波场创始人            已从定时关注范围移除
