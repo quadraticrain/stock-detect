@@ -1,4 +1,4 @@
-# stock-detect 每日 AI 舆情分析（openclaw-v5.7）
+# stock-detect 每日 AI 舆情分析（openclaw-v5.8）
 
 > **这是同一个定时任务**——从 MySQL 增量读 X 推文 → 语义分析 → 写入四张 AI 表 → 保存断点。  
 > 区别仅在于 **由哪个 AI Agent 执行**：
@@ -10,6 +10,8 @@
 >
 > 任务逻辑、断点机制、Ticker 映射、态度分级对两种方式 **完全相同**。  
 > 与关键词报告的区别：GolangCalculateServer `/api/stock-detect/report` 使用死板词表；**本任务做自然语言语义分析**。
+
+**版本变更（v5.8）**：雪球博主转发文章纳入分析。但斌、段永平在雪球上经常转发他人文章并附加自己的评论（类似红蓝对抗式的思辨分析），其转发+评论内容同样蕴含投资观点，自 v5.8 起一并纳入语义分析。
 
 **版本变更（v5.7）**：定时账号为 4 位：`aleabitoreddit`, `mingchikuo`, `xueqiu:1247347556`（段永平雪球）, `xueqiu:1102105103`（但斌雪球）。
 
@@ -56,8 +58,8 @@
 |------|------|-------------|
 | `aleabitoreddit` | 半导体/AI 基础设施投资博主 | 显式 `$TICKER` 为主。**主题篮子**：Neocloud（NBIS/CRWV/IREN/WULF/CIFR…）、InP 光子学（AXTI/LITE/COHR…）、国防无人机（AIRO/OSS/AVAV）、委内瑞拉（GRZ/CVX…）、算力连结（ALAB/CRDO/MRVL/AVGO/TSM…）。篮子内未点名成员也给 neutral context。 |
 | `mingchikuo` | 苹果供应链分析师 | 聚焦 **AAPL** 及供应链（TSM、QCOM 等）。以正文点名公司或 `$TICKER` 为主；无明确标的不臆造。 |
-| `xueqiu:1247347556` | 段永平雪球 | 只分析其本人原发与本人回帖。以雪球链接/入库 tickers（如 `SH600519`、`AAPL`）和正文公司名为主；中文闲聊无投资指向时写 neutral。 |
-| `xueqiu:1102105103` | 但斌雪球 | 只分析其本人原发。聚焦美股科技、消费、A/H 股票与宏观观点；转发和回帖不纳入。无明确股票指向时写 neutral。 |
+| `xueqiu:1247347556` | 段永平雪球 | 分析其本人原发、回帖**及转发文章**。以雪球链接/入库 tickers（如 `SH600519`、`AAPL`）和正文公司名为主；中文闲聊无投资指向时写 neutral。转发文章需同时分析原文标的与段永平附加的评论观点。 |
+| `xueqiu:1102105103` | 但斌雪球 | 分析其本人原发**及转发文章**。聚焦美股科技、消费、A/H 股票与宏观观点；但斌常转发他人文章并附加思辨式评论（红蓝对抗风格），转发+评论内容一并纳入分析。无明确股票指向时写 neutral。 |
 
 ### Ticker 识别（6 类映射，按强度递减）
 
@@ -81,7 +83,26 @@
 | 中性/语境 | neutral | 0.35–0.5 | 仅对比/供应商提及 |
 
 
-**硬性规则**：reasoning 中文；summary 末尾带「仅供参考，非投资建议」；`prompt_version` 固定 `openclaw-v5.7`；时间 UTC。
+**硬性规则**：reasoning 中文；summary 末尾带「仅供参考，非投资建议」；`prompt_version` 固定 `openclaw-v5.8`；时间 UTC。
+
+### 雪球转发文章分析（v5.8 新增）
+
+雪球博主（但斌、段永平）常转发他人文章并附加自己的评论，形成类似「红蓝对抗」的思辨分析。自 v5.8 起，这类转发+评论内容同样纳入语义分析。
+
+**分析原则**：
+
+1. **识别转发帖**：雪球转发帖通常在 `text` 字段中包含被转发原文的摘要或全文，并附带博主自己的评论。博主评论可能出现在原文之前、之后或穿插其中。
+2. **双维度分析**：
+   - **被转发原文**：提取原文中涉及的 ticker、投资观点和市场判断，作为「被引用观点」。
+   - **博主附加评论**：这是分析重点。博主转发时的评语往往体现其对该观点的认同、反驳或补充——这是其投资思维的核心体现。
+3. **信号归属**：所有 signals 归属于**转发博主本人**（即 account 字段对应的博主），而非被转发原文的作者。reasoning 中需区分「博主认同/反驳/补充了被转发文章的哪些观点」。
+4. **态度判断**：
+   - 博主转发时**认同或强化**原文观点 → 按原文方向给出 buy/sell/hold，confidence 可适当提高（博主选择转发本身即一种背书）。
+   - 博主转发时**反驳或质疑**原文观点 → 给出与原文相反的方向，或在 reasoning 中明确标注「博主反对原文观点」。
+   - 博主转发时**补充或引申**原文观点 → 按博主补充后的综合方向判断。
+   - 博主**纯转发无评论** → 仍分析原文 ticker，confidence 适当降低（0.4–0.55），reasoning 注明「纯转发，无附加评论，信号源自被转发文章」。
+5. **reasoning 格式**：转发帖的 reasoning 应包含两部分——先简述被转发文章的核心观点，再说明博主的态度和补充。例如：「转发文章认为美股 AI 泡沫即将破裂，但斌在评论中引用历史数据反驳，认为当前估值合理，维持看多 NVDA」。
+6. **post_text_excerpt**：截取博主评论部分为主，如评论过短则附上原文关键句。
 
 ### 股票-only 边界
 
@@ -181,7 +202,15 @@ A 显式 $TICKER；B 公司名→ticker（SpaceX/xAI/Starlink→SPCX，Tesla→T
 
 ## 态度分级
 
-buy/hold/sell/neutral 四值；confidence 0.35–0.9。reasoning 中文；summary 末尾「仅供参考，非投资建议」。prompt_version: openclaw-v5.7
+buy/hold/sell/neutral 四值；confidence 0.35–0.9。reasoning 中文；summary 末尾「仅供参考，非投资建议」。prompt_version: openclaw-v5.8
+
+## 雪球转发文章分析（v5.8）
+
+雪球博主（但斌、段永平）常转发他人文章并附加评论，形成红蓝对抗式思辨。转发帖同样纳入分析：
+- 识别转发帖：text 含被转发原文 + 博主评论
+- 信号归属转发博主本人；reasoning 先简述被转发文章观点，再说明博主态度（认同/反驳/补充）
+- 博主认同原文 → 按原文方向，confidence 适当提高；博主反驳 → 给相反方向；纯转发无评论 → confidence 降至 0.4–0.55
+- post_text_excerpt 以博主评论为主
 
 ## 执行步骤（每账号）
 
@@ -197,13 +226,13 @@ buy/hold/sell/neutral 四值；confidence 0.35–0.9。reasoning 中文；summar
 ### 用户 Prompt（User，每次定时触发）
 
 ```
-执行 stock-detect 每日 AI 舆情分析（openclaw-v5.7，增量断点续跑）。
+执行 stock-detect 每日 AI 舆情分析（openclaw-v5.8，增量断点续跑）。
 
 - 账号列表：aleabitoreddit, mingchikuo, xueqiu:1247347556, xueqiu:1102105103
 - mode：incremental（默认）
 - batch_limit：400
 - 当前 UTC：{{NOW_UTC}}
-- prompt_version：openclaw-v5.7
+- prompt_version：openclaw-v5.8
 
 对每个账号依次：
 1) 读 stock_detect_ai_runs 最新 checkpoint
@@ -282,7 +311,7 @@ LIMIT 20;
 {
   "run_id": "YYYYMMDDTHHMMSSZ_ai_{account}",
   "account": "...", "window_start": "...", "window_end": "...",
-  "post_count": 400, "model": "glm-5.2", "prompt_version": "openclaw-v5.7",
+  "post_count": 400, "model": "glm-5.2", "prompt_version": "openclaw-v5.8",
   "status": "partial|completed", "summary": "...",
   "resume_from_post_id": "...", "resume_from_created_at": "...",
   "checkpoint_post_id": "...", "checkpoint_post_created_at": "...",
