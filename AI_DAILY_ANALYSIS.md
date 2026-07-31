@@ -241,17 +241,6 @@ buy/hold/sell/neutral 四值；confidence 0.35–0.9。reasoning 中文；summar
 4) 必须写入 resume_from_* 与 checkpoint_*
 
 完成后返回各账号 run_id、status、checkpoint、remaining_estimate、summary。
-
-全部账号 AI 增量分析完成后，执行一次新股检测并推送 Bark（批量处理，无需逐账号单独跑脚本）：
-
-```bash
-python scripts/detect_new_tickers.py
-```
-
-- 默认账号：`aleabitoreddit`, `mingchikuo`, `xueqiu:1247347556`, `xueqiu:1102105103`（已停用 X 账号自动跳过）
-- 规则：近 24 小时推文中的 ticker，若该博主历史从未提及则推送
-- Bark：`https://api.day.app/CXFgAnMVdZXTPvsKRgWKFo`，标题/正文标注博主
-- 仅检测 `$TICKER` / 入库 tickers，不做 AI 语义映射
 ```
 
 ### SQL 示例与验证
