@@ -7,7 +7,7 @@ env:
 
 on:
   schedule:
-    - cron: "40 9 * * *"  # daily 17:40 Beijing (UTC+8), before 23:00 AI analysis
+    - cron: "40 9 * * 6"  # every Saturday 17:40 Beijing (UTC+8)
   workflow_dispatch:
     inputs:
       accounts:
