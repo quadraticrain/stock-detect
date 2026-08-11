@@ -1,4 +1,4 @@
-# stock-detect 每日 AI 舆情分析（openclaw-v5.8）
+# stock-detect AI 舆情分析（openclaw-v5.8）
 
 > **这是同一个定时任务**——从 MySQL 增量读 X 推文 → 语义分析 → 写入四张 AI 表 → 保存断点。  
 > 区别仅在于 **由哪个 AI Agent 执行**：
@@ -32,7 +32,7 @@
 
 **定时账号**（与 GitHub Actions `scan-mysql.yml` 一致）：`aleabitoreddit`, `mingchikuo`, `xueqiu:1247347556`, `xueqiu:1102105103`。
 
-**停止关注账号**：`elonmusk` 已从每日股票-only 定时关注范围移除；`sunyuchentron` / `justinsuntron` 也已从后续抓取和 AI 定时关注范围移除。MySQL 旧数据保留，不做清理。
+**停止关注账号**：`elonmusk` 已从股票-only 定时关注范围移除；`sunyuchentron` / `justinsuntron` 也已从后续抓取和 AI 定时关注范围移除。MySQL 旧数据保留，不做清理。
 
 ### 增量断点规范（两种 Agent 均须遵守）
 
@@ -226,7 +226,7 @@ buy/hold/sell/neutral 四值；confidence 0.35–0.9。reasoning 中文；summar
 ### 用户 Prompt（User，每次定时触发）
 
 ```
-执行 stock-detect 每日 AI 舆情分析（openclaw-v5.8，增量断点续跑）。
+执行 stock-detect AI 舆情分析（openclaw-v5.8，增量断点续跑）。
 
 - 账号列表：aleabitoreddit, mingchikuo, xueqiu:1247347556, xueqiu:1102105103
 - mode：incremental（默认）
@@ -358,7 +358,7 @@ LIMIT 20;
 
 | 文件 | 用途 |
 |------|------|
-| `AI_DAILY_ANALYSIS.md` | **本文档**（任务规范 + OpenClaw Prompt + 本地工具链） |
+| `AI_ANALYSIS.md` | **本文档**（任务规范 + OpenClaw Prompt + 本地工具链） |
 | `scripts/ai_analysis_helper.py` | MySQL 读写主工具 |
 | `scripts/gen_alea_run.py` / `gen_elon_run.py` | 账号语义判断承载 |
 | `scripts/purge_account.py` | 删除指定账号缓存与 AI 数据 |
