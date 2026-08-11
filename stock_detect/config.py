@@ -108,10 +108,6 @@ AI_ANALYSIS_TIMEZONE = "Asia/Shanghai"
 AI_ANALYSIS_CRON_BEIJING = "0 23 * * *"   # 23:00 every day, use with timezone above
 AI_ANALYSIS_CRON_UTC = "0 15 * * *"       # equivalent when scheduler runs in UTC
 
-# New-ticker Bark alerts (run after daily AI incremental analysis)
-BARK_PUSH_URL = "https://api.day.app/CXFgAnMVdZXTPvsKRgWKFo"
-NEW_TICKER_LOOKBACK_HOURS = 24
-
 
 def active_scheduled_x_accounts() -> tuple[str, ...]:
     """CI scheduled accounts minus explicitly disabled slugs."""

@@ -65,8 +65,6 @@ gh workflow run scan-mysql.yml \
 
 OpenClaw 与本地手动为 **同一 AI 任务**（仅 Agent 不同），完整规范见 [`AI_ANALYSIS.md`](AI_ANALYSIS.md)（含 OpenClaw Prompt 与 `scripts/ai_analysis_helper.py` 手动流程）。
 
-AI 增量分析完成后，可运行 `scripts/detect_new_tickers.py` 批量检测各博主近 24 小时**首次提到**的股票，并通过 Bark 推送到手机（推送内容标注博主）。
-
 ## 信号源优先级
 
 | 优先级 | 来源 | 说明 |
