@@ -65,6 +65,24 @@ gh workflow run scan-mysql.yml \
 
 OpenClaw 与本地手动为 **同一 AI 任务**（仅 Agent 不同），完整规范见 [`AI_ANALYSIS.md`](AI_ANALYSIS.md)（含 OpenClaw Prompt 与 `scripts/ai_analysis_helper.py` 手动流程）。
 
+### 财报 / IPO 推送（原 stock-push）
+
+合并自 [stock-push](https://github.com/quadraticrain/stock-push)；代码在 `stock_push/`，详情见 [`stock_push/README.md`](stock_push/README.md)。
+
+| Workflow | 定时（UTC cron） | 说明 |
+|----------|------------------|------|
+| `earnings.yml` | `0 0 * * 1-5` | 美股/港股/日股/A 股财报 → JSON → Bark 分发 |
+| `ipo.yml` | `0 1 * * 1-5` | A 股打新 / 可转债 / 港股 IPO → Bark |
+
+额外所需 Secrets（从旧仓库迁过来）：`BARK_URL`、`EARNINGS_PUSH_API`、`DB_HOST`、`DB_PORT`、`DB_USER`、`DB_PASSWORD`、`DB_NAME`。
+
+```bash
+gh workflow run earnings.yml --repo quadraticrain/stock-detect
+gh workflow run ipo.yml --repo quadraticrain/stock-detect
+python stock_push/earnings.py
+python stock_push/ipo.py
+```
+
 ## 信号源优先级
 
 | 优先级 | 来源 | 说明 |
