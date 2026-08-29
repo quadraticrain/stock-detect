@@ -317,9 +317,10 @@ LIMIT 20;
 | 脚本 | 账号 |
 |------|------|
 | `scripts/gen_alea_run.py` | aleabitoreddit |
-| `scripts/alea_auto_batch.py` | aleabitoreddit 批量循环 |
 
 读取 `fetch` 输出，按第一章规则生成 `write-run` 所需的 run JSON。
+
+> ⚠️ **不要新增关键词规则引擎脚本**。曾有提案新增 `scripts/alea_auto_batch.py`（关键词命中 → 直接输出 recommendation/confidence，不经 AI 阅读原文），已被否决：违反本文第一章 v5.7 语义优先原则，且无法处理反讽、否定式（如 “I would never buy” 会命中 buy）与上下文歧义。历史积压已由 OpenClaw 定时任务消化完毕，不存在需要批量规则引擎的场景。
 
 ---
 
