@@ -8,7 +8,16 @@
 
 ## 定时任务概览
 
-生产环境由两个**独立**定时任务配合：**GitHub Actions 负责抓 X 推文入库（17:40）**，**OpenClaw 负责读库做 AI 语义分析（23:00）**。二者调度互不影响。
+本仓库目前有 **3 个 GitHub Actions workflow** + **1 个 OpenClaw 任务**，彼此独立、互不影响：
+
+| Workflow / 任务 | 调度（北京时间） | 作用 |
+|-----------------|------------------|------|
+| `scan-mysql.yml` | **每周六 17:40** | 抓 X / 雪球推文入 MySQL |
+| `earnings.yml` | 周一~周五 08:00 | 财报日历 → JSON → Bark 分发 |
+| `ipo.yml` | 周一~周五 09:00 | A 股打新 / 可转债 / 港股 IPO → Bark |
+| OpenClaw AI 分析 | 每天 23:00 | 读库做语义分析，写 AI 结果表 |
+
+> GitHub Actions 的 `schedule` **不保证准时**，实际常延迟数小时；上表为 cron 配置的计划时间。
 
 ### X 数据抓取（`scan-mysql.yml`）
 
@@ -16,11 +25,15 @@ Workflow 文件：`.github/workflows/scan-mysql.yml`
 
 | 项 | 值 |
 |----|-----|
-| 定时 | 每天 **北京时间 17:40** 自动运行 |
+| 定时 | **每周六 北京时间 17:40**（cron `40 9 * * 6`，UTC） |
+| 超时 | `timeout-minutes: 90` |
 | 默认账号 | `aleabitoreddit`, `mingchikuo`, `xueqiu:1247347556`（段永平雪球）, `xueqiu:1102105103`（但斌雪球） |
 | 默认窗口 | **63 天**（X API 可读范围；更早历史需 Guest 回填） |
 | 写入 | MySQL `stock_detect_x_posts`、`stock_detect_x_fetch_state` |
 | 所需 Secret | `MYSQL_PASSWORD`、`X_BEARER_TOKEN`、`XUEQIU_COOKIE` |
+| 失败通知 | 任一步骤失败时推 Bark（`stock-detect` 分组），提示可能需刷新 `XUEQIU_COOKIE` |
+
+> workflow 的 `SCHEDULED_ACCOUNTS` 仍包含 `justinsuntron`，但该账号已列入 `config.py` 的 `DISABLED_X_ACCOUNTS`，抓取入口会自动跳过，实际生效账号为 `aleabitoreddit`、`mingchikuo` 两个 X 账号 + 两个雪球账号。
 
 **手动触发**（Actions → *Scan MySQL (X fetch)* → Run workflow，或命令行）：
 
@@ -48,8 +61,8 @@ gh workflow run scan-mysql.yml \
 雪球 Cookie 半自动刷新（本机浏览器保持雪球登录后执行）：
 
 ```bash
-/Users/rainlu/Documents/work/stock-detect/scripts/sync_xueqiu_cookie_secret.py --dry-run
-/Users/rainlu/Documents/work/stock-detect/scripts/sync_xueqiu_cookie_secret.py --repo quadraticrain/stock-detect
+./scripts/sync_xueqiu_cookie_secret.py --dry-run
+./scripts/sync_xueqiu_cookie_secret.py --repo quadraticrain/stock-detect
 ```
 
 脚本从本机 Chromium 系浏览器读取 `xueqiu.com` Cookie，并执行 `gh secret set XUEQIU_COOKIE`；不保存雪球账号密码。
@@ -58,7 +71,7 @@ gh workflow run scan-mysql.yml \
 
 | 项 | 值 |
 |----|-----|
-| 调度 | 每天 **北京时间 23:00**（OpenClaw 任务；GitHub Actions 抓取为 17:40） |
+| 调度 | 每天 **北京时间 23:00**（OpenClaw 任务；GitHub Actions 抓取为每周六 17:40） |
 | 输入 | MySQL `stock_detect_x_posts`（**增量断点**续跑，不重复分析已处理帖） |
 | 输出 | `stock_detect_ai_runs`、`stock_detect_ai_signals`、`stock_detect_ai_consensus`、`stock_detect_ai_top_tickers` |
 | 与关键词报告的区别 | GolangCalculateServer 报告用固定词表；**AI 任务做自然语言语义分析**（buy/hold/sell/neutral、共识、热门 ticker） |
@@ -67,14 +80,28 @@ OpenClaw 与本地手动为 **同一 AI 任务**（仅 Agent 不同），完整�
 
 ### 财报 / IPO 推送（原 stock-push）
 
-合并自 [stock-push](https://github.com/quadraticrain/stock-push)；代码在 `stock_push/`，详情见 [`stock_push/README.md`](stock_push/README.md)。
+合并自 [stock-push](https://github.com/quadraticrain/stock-push)（旧仓库待归档删除）；代码在 `stock_push/`，表结构与推送格式详见 [`stock_push/README.md`](stock_push/README.md)。
 
-| Workflow | 定时（UTC cron） | 说明 |
-|----------|------------------|------|
-| `earnings.yml` | `0 0 * * 1-5` | 美股/港股/日股/A 股财报 → JSON → Bark 分发 |
-| `ipo.yml` | `0 1 * * 1-5` | A 股打新 / 可转债 / 港股 IPO → Bark |
+| Workflow | 定时（UTC cron） | 计划北京 | 超时 | 说明 |
+|----------|------------------|----------|------|------|
+| `earnings.yml` | `0 0 * * 1-5` | 08:00 | 40 分钟 | 美股/港股/日股/A 股财报 → JSON → Bark 分发 |
+| `ipo.yml` | `0 1 * * 1-5` | 09:00 | 20 分钟 | A 股打新 / 可转债 / 港股 IPO → Bark |
 
-额外所需 Secrets（从旧仓库迁过来）：`BARK_URL`、`EARNINGS_PUSH_API`、`DB_HOST`、`DB_PORT`、`DB_USER`、`DB_PASSWORD`、`DB_NAME`。
+所需 Secrets（已从旧仓库迁入本仓库）：
+
+| Secret | 值 / 说明 |
+|--------|-----------|
+| `DB_HOST` | `rm-wz91qxav0rb3uxf17ro.mysql.cn-shenzhen.rds.aliyuncs.com` |
+| `DB_PORT` | `3306` |
+| `DB_USER` | `cache_data_write` |
+| `DB_PASSWORD` | 与 `MYSQL_PASSWORD` **同一个密码**（同库同账号） |
+| `DB_NAME` | `cache_data` |
+| `BARK_URL` | Bark 推送地址，**末尾带斜杠** |
+| `EARNINGS_PUSH_API` | 可选，默认 `https://quadraticequation.top/api/earnings/bark-forward` |
+
+> ⚠️ `DB_PASSWORD` 与上文的 `MYSQL_PASSWORD` 是**同一个数据库密码的两份拷贝**（历史遗留：两个仓库各自命名）。**轮换密码时必须两个 Secret 一起改**，否则会出现一半 workflow 正常、一半连不上库。
+
+手动触发与本地运行：
 
 ```bash
 gh workflow run earnings.yml --repo quadraticrain/stock-detect
@@ -82,6 +109,22 @@ gh workflow run ipo.yml --repo quadraticrain/stock-detect
 python stock_push/earnings.py
 python stock_push/ipo.py
 ```
+
+**运行耗时**：`earnings.py` 要遍历 **209 只标的**（美 83 / 日 17 / 港 112 / A 1），每只先查 MySQL 缓存，未命中则调 yfinance；叠加限流（每只 `sleep(0.5)`，每 20 只额外 `sleep(3)`）。
+
+| 场景 | 典型耗时 |
+|------|----------|
+| 缓存全 miss（首次运行 / 缓存集体过期） | **~25 分钟**（实测 ~6.7 秒/只） |
+| 缓存大部分命中（日常） | ~3–5 分钟 |
+
+缓存 TTL 为 `earnings_date + 7 天`，所以**首次跨仓库运行慢属正常，不是卡死**。判断是否真在干活（job 未结束时 Actions 日志下载不了，会返回 `BlobNotFound`）：
+
+```sql
+SELECT COUNT(*), MAX(cached_at) FROM earnings_cache
+WHERE cached_at > NOW() - INTERVAL 30 MINUTE;
+```
+
+行数持续增长即说明脚本正常推进，且 `DB_*` 四个 Secret 均配置正确。
 
 ## 信号源优先级
 
@@ -147,13 +190,18 @@ MYSQL_PASSWORD=你的数据库密码
 
 ### GitHub Actions
 
-在 **Settings → Secrets → Actions** 添加：
+在 **Settings → Secrets and variables → Actions** 添加：
 
-| Secret | 说明 |
-|--------|------|
-| `MYSQL_PASSWORD` | MySQL 写账号密码 |
-| `X_BEARER_TOKEN` | X 官方 API Bearer Token（读推文必需，**勿写入代码**） |
-| `XUEQIU_COOKIE` | 雪球登录 Cookie（段永平/但斌雪球抓取；可用 `scripts/sync_xueqiu_cookie_secret.py` 更新） |
+| Secret | 说明 | 使用方 |
+|--------|------|--------|
+| `MYSQL_PASSWORD` | MySQL 写账号密码 | `scan-mysql.yml` |
+| `X_BEARER_TOKEN` | X 官方 API Bearer Token（读推文必需，**勿写入代码**） | `scan-mysql.yml` |
+| `XUEQIU_COOKIE` | 雪球登录 Cookie（段永平/但斌雪球抓取；可用 `scripts/sync_xueqiu_cookie_secret.py` 更新） | `scan-mysql.yml` |
+| `DB_HOST` / `DB_PORT` / `DB_USER` / `DB_PASSWORD` / `DB_NAME` | 同一个 `cache_data` 库的连接信息 | `earnings.yml` / `ipo.yml` |
+| `BARK_URL` | Bark 推送地址 | `ipo.yml` |
+| `EARNINGS_PUSH_API` | 财报 JSON 分发 API（可选） | `earnings.yml` |
+
+> 共 **9 个 Secret**。`MYSQL_PASSWORD` 与 `DB_PASSWORD` 指向同一个密码，详见上文财报/IPO 章节的轮换提醒。
 
 报告 JSON 的 `fetch_stats` 会包含 `cache_posts`（窗口内缓存条数）与 `api_posts_new`（本次新写入条数）。`streams_used` 含 `MySQLCache`。
 
@@ -232,7 +280,7 @@ python main.py scan --accounts aleabitoreddit
 
 ### 6. GitHub Actions CI
 
-CI 只需配置 **`MYSQL_PASSWORD`** 与 **`X_BEARER_TOKEN`**（见上文）。定时任务只做 **X 抓取 + 信号扫描**，不含 Yahoo 回测。
+CI 只需配置 **`MYSQL_PASSWORD`** 与 **`X_BEARER_TOKEN`**（见上文）。`scan-mysql.yml` 只做 **X/雪球抓取 + 信号扫描**，不含 Yahoo 回测；财报/IPO 推送是另外两个 workflow，需要 `DB_*` 系列 Secret。
 
 ### 7. 配额与套餐
 
@@ -290,7 +338,7 @@ python main.py scan --after 2025-01-01 --before 2025-06-01
 ## 项目结构
 
 ```
-stock_detect/
+stock_detect/             # X/雪球抓取与信号分析
 ├── tweet_cache.py       # MySQL 博文缓存与去重
 ├── x_api_client.py      # X 官方 API v2（OAuth Bearer / OAuth1）
 ├── twitter_fetcher.py   # X 时间线（OAuth 优先，Guest 回退）
@@ -298,12 +346,26 @@ stock_detect/
 ├── signal_extractor.py  # 统一信号提取
 ├── analyzer.py          # X-first 分析流水线
 ├── market_data.py       # S&P 500 ticker 列表（--sp500-only）
+├── config.py            # 账号名单 / MySQL 连接 / 停用账号
 └── cli.py
+
+stock_push/               # 财报 / IPO / Bark 推送（合并自 stock-push）
+├── earnings.py          # 财报日历（MySQL 缓存优先 → yfinance 补查）
+├── ipo.py               # A 股打新 / 可转债 / 港股 IPO
+├── layoff.py            # 裁员数据查询
+├── layoff_v2.py         # 裁员数据查询 v2
+├── china.py             # 中国财经要闻（stdin 入参，无定时任务）
+└── bark.py              # Bark 推送 + MySQL 日志
+
+.github/workflows/
+├── scan-mysql.yml       # 周六 17:40 抓 X/雪球
+├── earnings.yml         # 工作日 08:00 财报
+└── ipo.yml              # 工作日 09:00 IPO
 ```
 
 ## CI 扫描（MySQL）
 
-详见上文 **[定时任务概览 → X 数据抓取](#定时任务概览)**。CI 每天 **北京时间 17:40** 自动拉取 X 时间线写入 MySQL；也可 `gh workflow run scan-mysql.yml` 手动触发。报告页面已迁移至 [GolangCalculateServer](https://github.com/quadraticrain/GolangCalculateServer) 的 `web/public/stock-detect/`，由后端 API 从 MySQL 实时生成。
+详见上文 **[定时任务概览 → X 数据抓取](#定时任务概览)**。CI 每周六 **北京时间 17:40** 自动拉取 X 时间线写入 MySQL；也可 `gh workflow run scan-mysql.yml` 手动触发。报告页面已迁移至 [GolangCalculateServer](https://github.com/quadraticrain/GolangCalculateServer) 的 `web/public/stock-detect/`，由后端 API 从 MySQL 实时生成。
 
 本地仅分析缓存（不拉取）：
 
@@ -313,13 +375,23 @@ python scripts/analyze_mysql_report.py --accounts aleabitoreddit
 
 ## 运行耗时
 
+### X 抓取 / 分析（`main.py scan`）
+
 | 模式 | 典型耗时 |
 |------|----------|
 | X 默认扫描 | **~1 分钟**（含 MySQL + 官方 API） |
 | X + WSB 合并 | ~30–60 秒 |
 | `--sp500-only` | ~1 分钟 |
 
-单次完整运行远低于 30 分钟，适合 GitHub Actions 定时触发（workflow 已配置 `timeout-minutes: 30`）。
+### 各 workflow 超时配置
+
+| Workflow | `timeout-minutes` | 依据 |
+|----------|-------------------|------|
+| `scan-mysql.yml` | 90 | 含 Guest 回填 + 多账号多页拉取 |
+| `earnings.yml` | 40 | 缓存全 miss 时实测 ~25 分钟 |
+| `ipo.yml` | 20 | 数据量小，通常 1–2 分钟 |
+
+三个 workflow 均已显式设置 `timeout-minutes`，避免上游 API 挂住时按 GitHub 默认的 **360 分钟** 白烧 runner 时长。
 
 ## 免责声明
 

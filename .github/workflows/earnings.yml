@@ -9,6 +9,8 @@ on:
 jobs:
   earnings-push:
     runs-on: ubuntu-latest
+    # 209 只标的逐只走 yfinance + 限流 sleep；缓存全 miss 时约 25 分钟，留足余量
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
 

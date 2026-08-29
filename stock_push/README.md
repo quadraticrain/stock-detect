@@ -1,6 +1,8 @@
-# 美股财报与打新提醒系统
+# 财报与打新提醒（stock_push）
 
-自动追踪美股/港股/A股的财报日历和IPO打新信息，推送至 Bark App。
+自动追踪美股/港股/日股/A股的财报日历和 IPO 打新信息，推送至 Bark App。
+
+> 本模块 2026-08 从独立仓库 [stock-push](https://github.com/quadraticrain/stock-push) 合并进 stock-detect，旧仓库待归档删除。仓库总览见 [根目录 README](../README.md)。
 
 ## 🏗️ 系统架构
 
@@ -21,20 +23,22 @@
 ```
 stock-detect/
 ├── .github/workflows/
-│   ├── earnings.yml      # 财报提醒
-│   └── ipo.yml           # 打新提醒
+│   ├── earnings.yml       # 财报提醒（timeout 40min）
+│   ├── ipo.yml            # 打新提醒（timeout 20min）
+│   └── scan-mysql.yml     # X/雪球抓取（非本模块）
 ├── stock_push/
-│   ├── earnings.py       # 财报数据获取 + 推送（MySQL缓存优先->yfinance补查）
-│   ├── ipo.py            # IPO打新数据获取
-│   ├── layoff.py         # 裁员数据查询工具（供earnings.py调用）
-│   ├── layoff_v2.py      # 裁员数据查询工具 v2
-│   ├── china.py          # 中国财经要闻
-│   └── bark.py           # Bark推送工具 + MySQL日志
+│   ├── earnings.py        # 财报数据获取 + 推送（MySQL缓存优先->yfinance补查）
+│   ├── ipo.py             # IPO打新数据获取
+│   ├── layoff.py          # 裁员数据查询工具（供earnings.py调用）
+│   ├── layoff_v2.py       # 裁员数据查询工具 v2
+│   ├── china.py           # 中国财经要闻（stdin 入参，无定时任务）
+│   └── bark.py            # Bark推送工具 + MySQL日志
 ├── prompts/
 │   └── china_automation_instructions.md
-└── scripts/
-    ├── check_layoff.py
-    └── migrate_layoff.py
+├── scripts/
+│   ├── check_layoff.py
+│   └── migrate_layoff.py
+└── requirements.txt       # 全仓库共用（含 akshare/yfinance/feedparser/bs4）
 ```
 
 ## 📊 数据库表结构
@@ -130,43 +134,65 @@ CREATE TABLE push_response_log (
 
 ## ⏰ 定时任务配置
 
-### GitHub Actions
-
-| 任务 | 文件 | 频率 | Cron (UTC) | 计划北京 | 预计实际到达 |
-|------|------|------|------------|----------|------------|
-| 财报提醒 | `earnings.yml` | 周一~周五 | `0 0 * * 1-5` | 08:00 | ~12:00 |
-| IPO打新 | `ipo.yml` | 周一~周五 | `0 1 * * 1-5` | 09:00 | ~13:00 |
+| 任务 | 文件 | 频率 | Cron (UTC) | 计划北京 | 预计实际到达 | 超时 |
+|------|------|------|------------|----------|------------|------|
+| 财报提醒 | `earnings.yml` | 周一~周五 | `0 0 * * 1-5` | 08:00 | ~12:00 | 40 分钟 |
+| IPO打新 | `ipo.yml` | 周一~周五 | `0 1 * * 1-5` | 09:00 | ~13:00 | 20 分钟 |
 
 > ⚠️ GitHub Actions schedule 不保证准时，通常延迟4-5小时，cron已提前设置以抵消延迟
 
-### AI 定时任务
+### 运行耗时
 
-| 任务 | 任务ID | 频率 | 说明 |
-|------|--------|------|------|
-| 裁员+回购数据 | 72106 | 周一/周三 10:00 | AI采集+分析，写入MySQL，增量推送Bark |
+`earnings.py` 遍历 **209 只标的**（美 83 / 日 17 / 港 112 / A 1），每只先查 MySQL 缓存，未命中则调 yfinance；叠加限流（每只 `sleep(0.5)`，每 20 只额外 `sleep(3)`）。
+
+| 场景 | 典型耗时 |
+|------|----------|
+| 缓存全 miss（首次运行 / 缓存集体过期） | ~25 分钟（实测 ~6.7 秒/只） |
+| 缓存大部分命中（日常） | ~3–5 分钟 |
+
+缓存 TTL = `earnings_date + 7 天`。首次运行慢属正常。job 运行中时 Actions 日志下载会返回 `BlobNotFound`，此时可直接查库确认进度：
+
+```sql
+SELECT COUNT(*), MAX(cached_at) FROM earnings_cache
+WHERE cached_at > NOW() - INTERVAL 30 MINUTE;
+```
+
+### 非定时脚本
+
+以下脚本**不在** GitHub Actions 中调度，需人工或 AI Agent 触发：
+
+| 脚本 | 触发方式 | 说明 |
+|------|---------|------|
+| `china.py` | `printf '%s' "$BODY" \| python stock_push/china.py` | 中国财经要闻，正文经 stdin 传入 |
+| `layoff.py` / `layoff_v2.py` | 被 `earnings.py` 调用 | 从 MySQL 读裁员数据，无独立入口 |
+| `scripts/check_layoff.py` | 手动 | 裁员数据检查 |
+| `scripts/migrate_layoff.py` | 手动 | 裁员表迁移 |
+
+> 原「裁员+回购数据」AI 定时任务（task_id 72106）已于 2026-08 停用；`layoff_quarterly_data` / `buyback_quarterly_data` 两张表的存量数据保留，`earnings.py` 推送时仍会读取补充展示。
 
 ## 🔧 GitHub Secrets 配置
 
 在仓库 Settings > Secrets and variables > Actions 中配置：
 
-| Secret | 说明 |
-|--------|------|
-| `EARNINGS_PUSH_API` | 财报 JSON 分发 API（可选，默认 `https://quadraticequation.top/api/earnings/bark-forward`） |
-| `BARK_URL` | Bark推送URL（IPO / 中国要闻等仍直推） |
-| `DB_HOST` | MySQL主机地址 |
-| `DB_PORT` | MySQL端口 (默认3306) |
-| `DB_USER` | MySQL用户名 |
+| Secret | 值 / 说明 |
+|--------|-----------|
+| `DB_HOST` | `rm-wz91qxav0rb3uxf17ro.mysql.cn-shenzhen.rds.aliyuncs.com` |
+| `DB_PORT` | `3306` |
+| `DB_USER` | `cache_data_write` |
 | `DB_PASSWORD` | MySQL密码 |
-| `DB_NAME` | MySQL数据库名 |
+| `DB_NAME` | `cache_data` |
+| `BARK_URL` | Bark推送URL（IPO / 中国要闻等仍直推），**末尾带斜杠** |
+| `EARNINGS_PUSH_API` | 财报 JSON 分发 API（可选，默认 `https://quadraticequation.top/api/earnings/bark-forward`） |
+
+> ⚠️ `DB_PASSWORD` 与本仓库 `scan-mysql.yml` 使用的 `MYSQL_PASSWORD` 是**同一个数据库密码的两份拷贝**（历史遗留：合并前两个仓库各自命名）。**轮换密码时必须两个 Secret 一起改。**
+
+代码中所有 `DB_*` 均有硬编码默认值兜底（见 `bark.py`），但生产环境请显式配置 Secret。
 
 ## 🚀 手动触发
 
 ```bash
-# 财报提醒
-gh workflow run earnings.yml
-
-# IPO打新
-gh workflow run ipo.yml
+gh workflow run earnings.yml --repo quadraticrain/stock-detect
+gh workflow run ipo.yml --repo quadraticrain/stock-detect
 ```
 
 ## 📈 数据流
@@ -184,7 +210,8 @@ gh workflow run ipo.yml
 
 ### 裁员与回购数据
 ```
-1. AI定时任务触发（每周一/三 12:00）
+（AI 定时采集任务已于 2026-08 停用，以下为历史流程，存量数据仍被 earnings.py 读取）
+1. AI 任务触发
 2. AI直接搜索+分析新闻，智能判断是否为真正裁员
 3. 验证规则：法律备案 > 行业2倍离职率 > 集中遣散+冻结招聘 > 正常流动
 4. 同时查询公司回购计划/执行情况
@@ -202,7 +229,7 @@ gh workflow run ipo.yml
 | A股IPO | 东方财富 (akshare) |
 | 港股IPO | 老虎证券 itiger API (hktrade.skytigris.com) |
 | 可转债 | 东方财富 (akshare) |
-| 裁员数据 | AI直接采集（非脚本） |
+| 裁员数据 | AI 人工采集（已停用定时任务，存量数据仍在库） |
 
 ## 📝 推送格式示例
 
@@ -239,8 +266,8 @@ IBM: 10000人
 ## 🛠️ 本地开发
 
 ```bash
-# 安装依赖
-pip install yfinance requests pandas pymysql lxml akshare
+# 安装依赖（仓库根目录）
+pip install -r requirements.txt
 
 # 设置环境变量
 export DB_HOST=your-db-host
@@ -248,7 +275,7 @@ export DB_USER=your-db-user
 export DB_PASSWORD=your-db-password
 export BARK_URL=https://api.day.app/YOUR_KEY/
 
-# 测试运行
+# 测试运行（仓库根目录执行）
 python stock_push/earnings.py
 python stock_push/ipo.py
 ```
@@ -259,7 +286,8 @@ python stock_push/ipo.py
 2. **数据库连接**: 确保 RDS 允许 GitHub Actions IP 访问
 3. **股票代码**: 港股代码需转换为4位格式（如02097.HK -> 2097.HK）
 4. **时区**: 所有时间均为 UTC+8
-5. **裁员数据**: 由AI定时任务采集，非GitHub Actions脚本执行
+5. **裁员数据**: 存量由 AI 人工采集，非 GitHub Actions 脚本执行；定时采集任务已停用
+6. **首次运行慢**: 缓存全 miss 时 `earnings.py` 约需 25 分钟，属正常现象，勿误判为卡死
 
 ## 📊 监控
 

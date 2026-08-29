@@ -9,6 +9,7 @@ on:
 jobs:
   ipo-push:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
