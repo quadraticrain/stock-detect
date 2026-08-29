@@ -12,6 +12,7 @@ site2/
 *.json
 !tests/fixtures/*.json
 .workbuddy/
+.idea/
 # stock_push local artifacts
 output/
 stock_push/db_helper.py
