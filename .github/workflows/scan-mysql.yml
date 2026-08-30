@@ -125,7 +125,7 @@ jobs:
               os.environ["BARK_PUSH_URL"],
               json={
                   "title": "stock-detect 每日抓取失败",
-                  "body": f"雪球/X 抓取失败，可能需要刷新 XUEQIU_COOKIE。{os.environ['RUN_URL']}",
+                  "body": f"X/雪球抓取失败：X API 额度耗尽或 token 失效，或 XUEQIU_COOKIE 需刷新。{os.environ['RUN_URL']}",
                   "group": "stock-detect",
                   "level": "timeSensitive",
               },

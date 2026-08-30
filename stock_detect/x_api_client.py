@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import os
 import re
+import sys
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -21,6 +22,57 @@ _OAUTH2_TOKEN = "https://api.twitter.com/2/oauth2/token"
 _TWEET_FIELDS = "created_at,public_metrics,entities,note_tweet,referenced_tweets"
 _USER_FIELDS = "username"
 _DEFAULT_SCOPES = "tweet.read users.read offline.access"
+
+# Non-recoverable: credentials rejected, credits depleted, or app suspended.
+# Retrying or silently skipping pages hides a broken pipeline, so we raise.
+_FATAL_STATUS = (401, 402, 403)
+# Rate limited / transient upstream failure: worth a bounded backoff retry.
+_RETRY_STATUS = (429, 500, 502, 503, 504)
+_MAX_RETRIES = 3
+_BACKOFF_BASE_SEC = 5.0
+
+
+class XApiFatalError(RuntimeError):
+    """X API refused the request in a way no retry can fix (auth/billing/suspension)."""
+
+    def __init__(self, status_code: int, url: str, detail: str):
+        self.status_code = status_code
+        self.url = url
+        self.detail = detail
+        super().__init__(f"X API {status_code} on {url}: {detail}")
+
+
+def _warn(message: str) -> None:
+    print(f"[x-api] {message}", file=sys.stderr)
+
+
+def _error_detail(resp: requests.Response) -> str:
+    try:
+        payload = resp.json()
+    except ValueError:
+        return (resp.text or "").strip()[:200]
+    if isinstance(payload, dict):
+        for key in ("detail", "title", "error_description", "message"):
+            value = payload.get(key)
+            if value:
+                return str(value)[:200]
+    return str(payload)[:200]
+
+
+def _retry_after_sec(resp: requests.Response, attempt: int) -> float:
+    header = resp.headers.get("retry-after") or resp.headers.get("Retry-After")
+    if header:
+        try:
+            return max(1.0, min(120.0, float(header)))
+        except ValueError:
+            pass
+    reset = resp.headers.get("x-rate-limit-reset")
+    if reset:
+        try:
+            return max(1.0, min(120.0, float(reset) - time.time()))
+        except ValueError:
+            pass
+    return min(60.0, _BACKOFF_BASE_SEC * (2**attempt))
 
 
 @dataclass
@@ -101,6 +153,41 @@ class XApiClient:
 
     def is_configured(self) -> bool:
         return self.credentials.is_configured()
+
+    def _get(self, url: str, params: dict, *, timeout: int) -> requests.Response | None:
+        """GET with fatal-status escalation and bounded retry on rate limits.
+
+        Returns None when the page should be skipped; raises XApiFatalError when the
+        whole run is doomed (bad token, depleted credits, suspended app).
+        """
+        for attempt in range(_MAX_RETRIES):
+            try:
+                resp = self.session.get(
+                    url,
+                    params=params,
+                    headers=self._auth_headers(),
+                    auth=self._oauth1_auth(),
+                    timeout=timeout,
+                )
+            except requests.RequestException as exc:
+                if attempt + 1 >= _MAX_RETRIES:
+                    _warn(f"request failed after {_MAX_RETRIES} attempts on {url}: {exc}")
+                    return None
+                time.sleep(_BACKOFF_BASE_SEC * (2**attempt))
+                continue
+
+            if resp.status_code == 200:
+                return resp
+            if resp.status_code in _FATAL_STATUS:
+                raise XApiFatalError(resp.status_code, url, _error_detail(resp))
+            if resp.status_code in _RETRY_STATUS and attempt + 1 < _MAX_RETRIES:
+                delay = _retry_after_sec(resp, attempt)
+                _warn(f"HTTP {resp.status_code} on {url}, retrying in {delay:.0f}s")
+                time.sleep(delay)
+                continue
+            _warn(f"HTTP {resp.status_code} on {url}: {_error_detail(resp)}")
+            return None
+        return None
 
     def fetch_user_timeline(
         self,
@@ -218,19 +305,14 @@ class XApiClient:
         if pagination_token:
             params["pagination_token"] = pagination_token
 
+        resp = self._get(f"{_API_BASE}/users/{user_id}/tweets", params, timeout=45)
+        if resp is None:
+            stats.pages_skipped += 1
+            return [], None
         try:
-            resp = self.session.get(
-                f"{_API_BASE}/users/{user_id}/tweets",
-                params=params,
-                headers=self._auth_headers(),
-                auth=self._oauth1_auth(),
-                timeout=45,
-            )
-            if resp.status_code != 200:
-                stats.pages_skipped += 1
-                return [], None
             payload = resp.json()
-        except (requests.RequestException, ValueError, KeyError):
+        except ValueError:
+            _warn(f"non-JSON timeline payload for @{screen_name}")
             stats.pages_skipped += 1
             return [], None
 
@@ -301,22 +383,18 @@ class XApiClient:
         chunk_size = 100
         for start in range(0, len(names), chunk_size):
             chunk = names[start : start + chunk_size]
+            resp = self._get(
+                f"{_API_BASE}/users/by",
+                {"usernames": ",".join(chunk), "user.fields": "id,username"},
+                timeout=30,
+            )
+            if resp is None:
+                stats.pages_skipped += 1
+                continue
             try:
-                resp = self.session.get(
-                    f"{_API_BASE}/users/by",
-                    params={
-                        "usernames": ",".join(chunk),
-                        "user.fields": "id,username",
-                    },
-                    headers=self._auth_headers(),
-                    auth=self._oauth1_auth(),
-                    timeout=30,
-                )
-                if resp.status_code != 200:
-                    stats.pages_skipped += 1
-                    continue
                 payload = resp.json()
-            except (requests.RequestException, ValueError, KeyError):
+            except ValueError:
+                _warn("non-JSON users/by payload")
                 stats.pages_skipped += 1
                 continue
 
@@ -330,19 +408,18 @@ class XApiClient:
 
     def _resolve_user_id(self, screen_name: str, stats: FetchStats) -> str | None:
         username = screen_name.lstrip("@")
+        resp = self._get(
+            f"{_API_BASE}/users/by/username/{username}",
+            {"user.fields": "id,username"},
+            timeout=30,
+        )
+        if resp is None:
+            stats.pages_skipped += 1
+            return None
         try:
-            resp = self.session.get(
-                f"{_API_BASE}/users/by/username/{username}",
-                params={"user.fields": "id,username"},
-                headers=self._auth_headers(),
-                auth=self._oauth1_auth(),
-                timeout=30,
-            )
-            if resp.status_code != 200:
-                stats.pages_skipped += 1
-                return None
             return str(resp.json().get("data", {}).get("id") or "")
-        except (requests.RequestException, ValueError, KeyError):
+        except ValueError:
+            _warn(f"non-JSON user lookup payload for @{username}")
             stats.pages_skipped += 1
             return None
 
@@ -387,6 +464,7 @@ class XApiClient:
                 timeout=30,
             )
             if resp.status_code != 200:
+                _warn(f"legacy app token HTTP {resp.status_code}: {_error_detail(resp)}")
                 return None, 0
             payload = resp.json()
             return payload.get("access_token"), int(payload.get("expires_in") or 7200)
@@ -415,6 +493,7 @@ class XApiClient:
                 timeout=30,
             )
             if resp.status_code != 200:
+                _warn(f"client_credentials token HTTP {resp.status_code}: {_error_detail(resp)}")
                 return None, 0
             payload = resp.json()
             return payload.get("access_token"), int(payload.get("expires_in") or 7200)

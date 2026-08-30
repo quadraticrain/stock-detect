@@ -33,7 +33,7 @@ from stock_detect.fetch_window import (
 )
 from stock_detect.models import SocialPost, sort_posts_chronological
 from stock_detect.tweet_cache import TweetCache
-from stock_detect.x_api_client import XApiClient
+from stock_detect.x_api_client import XApiClient, XApiFatalError
 
 _SYNDICATION = "https://syndication.twitter.com/srv/timeline-profile/screen-name/{screen_name}"
 _FXTWITTER_USER = "https://api.fxtwitter.com/{screen_name}"
@@ -159,6 +159,10 @@ class TwitterFetcher:
                     stats=stats,
                     cache=cache,
                 )
+            except XApiFatalError:
+                # Auth/billing failure: never fall back to the direct path, it would
+                # just fail the same way and mask the real cause.
+                raise
             except Exception:
                 pass
 
