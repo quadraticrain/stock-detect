@@ -54,7 +54,25 @@ Workflow 文件：`.github/workflows/scan-mysql.yml`
 | 默认窗口 | **63 天**（X API 可读范围；更早历史需 Guest 回填） |
 | 写入 | MySQL `stock_detect_x_posts`、`stock_detect_x_fetch_state` |
 | 所需 Secret | `MYSQL_PASSWORD`、`X_BEARER_TOKEN`、`XUEQIU_COOKIE` |
-| 失败通知 | 任一步骤失败时推 Bark（`stock-detect` 分组），提示可能需刷新 `XUEQIU_COOKIE` |
+| 失败通知 | 任一步骤失败时推 Bark（`stock-detect` 分组），提示 X API 额度/token 或 `XUEQIU_COOKIE` 问题 |
+
+### X API 错误处理（重要）
+
+`stock_detect/x_api_client.py` 对 X API 的非 200 响应分三类处理，**不再静默当成“这页没数据”**：
+
+| 状态码 | 行为 |
+|--------|------|
+| `401` / `402` / `403` | 抛 `XApiFatalError`，`scripts/scan_mysql.py` 以 **exit code 2** 退出，CI 变红 + Bark 告警 |
+| `429` / `5xx` | 按 `Retry-After` / `x-rate-limit-reset` 退避重试，最多 3 次；耗尽后计入 `pages_skipped` |
+| 其它非 200 | stderr 输出 `[x-api] HTTP <code> ...` warning 并计入 `pages_skipped` |
+
+`Scan OK` 行会同时输出 `pages_skipped=N`；N>0 时额外打一条 `WARNING: ... coverage may be incomplete`。
+
+常见故障：
+
+- **`402 credits depleted`** —— X 开发者账户 credit 余额耗尽（注意这与 `/2/usage/tweets` 的月度 post cap 无关，post cap 可能还剩很多）。充值后手动重跑 workflow，建议放大 `window_days` 补回空窗期。
+  自查：`curl -H "Authorization: Bearer $X_BEARER_TOKEN" https://api.twitter.com/2/users/by/username/aleabitoreddit`
+- **`401 Unauthorized`** —— `X_BEARER_TOKEN` 失效或被注销，轮换 GitHub Secret。
 
 > workflow 的 `SCHEDULED_ACCOUNTS` 仍包含 `justinsuntron`，但该账号已列入 `config.py` 的 `DISABLED_X_ACCOUNTS`，抓取入口会自动跳过，实际生效账号为 `aleabitoreddit`、`mingchikuo` 两个 X 账号 + 两个雪球账号。
 

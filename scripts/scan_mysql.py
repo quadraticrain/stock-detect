@@ -20,6 +20,7 @@ from stock_detect.config import (  # noqa: E402
     MAX_FETCH_POSTS,
 )
 from stock_detect.env import bootstrap  # noqa: E402
+from stock_detect.x_api_client import XApiFatalError  # noqa: E402
 
 
 def main() -> int:
@@ -44,18 +45,40 @@ def main() -> int:
     max_pages = min(args.max_pages, EXTENDED_MAX_FETCH_PAGES)
 
     analyzer = SignalAnalyzer(x_accounts=accounts)
-    report = analyzer.analyze(
-        source=args.source,
-        limit=max_posts,
-        max_pages=max_pages,
-        window_days=args.window_days,
-    )
+    try:
+        report = analyzer.analyze(
+            source=args.source,
+            limit=max_posts,
+            max_pages=max_pages,
+            window_days=args.window_days,
+        )
+    except XApiFatalError as exc:
+        print(f"Scan FAILED: {exc}", file=sys.stderr)
+        if exc.status_code == 402:
+            print(
+                "X API credits are depleted — top up the developer account, "
+                "then re-run this workflow to backfill the gap.",
+                file=sys.stderr,
+            )
+        elif exc.status_code == 401:
+            print("X_BEARER_TOKEN is invalid or revoked — rotate the GitHub secret.", file=sys.stderr)
+        else:
+            print("X API access is forbidden — check app permissions/suspension.", file=sys.stderr)
+        return 2
+
     stats = report.fetch_stats
     api_new = stats.api_posts_new if stats else None
+    skipped = stats.pages_skipped if stats else 0
     print(
         f"Scan OK: posts={report.fetched_posts} signals={len(report.signals)} "
-        f"api_new={api_new} accounts={','.join(accounts)}"
+        f"api_new={api_new} pages_skipped={skipped} accounts={','.join(accounts)}"
     )
+    if skipped:
+        print(
+            f"WARNING: {skipped} X API page(s) were skipped after retries; "
+            "coverage may be incomplete.",
+            file=sys.stderr,
+        )
     return 0
 
 

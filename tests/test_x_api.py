@@ -8,7 +8,12 @@ from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
 from stock_detect.fetch_window import FetchStats, FetchWindow
-from stock_detect.x_api_client import XApiClient, XApiCredentials, _tweet_v2_to_post
+from stock_detect.x_api_client import (
+    XApiClient,
+    XApiCredentials,
+    XApiFatalError,
+    _tweet_v2_to_post,
+)
 
 
 class XApiCredentialsTests(unittest.TestCase):
@@ -112,7 +117,37 @@ class XApiClientTests(unittest.TestCase):
         self.assertEqual(stats.pages_fetched, 2)
         self.assertEqual(client.session.get.call_count, 2)
 
-    def test_api_failure_skips_without_retry(self):
+    def test_fatal_status_raises(self):
+        """401/402/403 must surface, not be swallowed as an empty page."""
+        for status, detail in ((401, "Unauthorized"), (402, "credits depleted"), (403, "Forbidden")):
+            with self.subTest(status=status):
+                creds = XApiCredentials(bearer_token="token")
+                client = XApiClient(credentials=creds)
+                window = FetchWindow(
+                    after=datetime(2026, 4, 1, tzinfo=timezone.utc),
+                    before=datetime(2026, 6, 1, tzinfo=timezone.utc),
+                )
+                stats = FetchStats()
+
+                fail_resp = MagicMock(status_code=status, text=detail, headers={})
+                fail_resp.json.return_value = {"detail": detail, "status": status}
+                client.session.get = MagicMock(return_value=fail_resp)
+
+                with self.assertRaises(XApiFatalError) as ctx:
+                    client.fetch_user_timeline(
+                        "demo",
+                        window=window,
+                        max_pages=3,
+                        max_posts=100,
+                        stats=stats,
+                        user_id="999",
+                    )
+                self.assertEqual(ctx.exception.status_code, status)
+                self.assertIn(detail, str(ctx.exception))
+                # No blind retry on fatal statuses.
+                self.assertEqual(client.session.get.call_count, 1)
+
+    def test_rate_limit_retries_then_succeeds(self):
         creds = XApiCredentials(bearer_token="token")
         client = XApiClient(credentials=creds)
         window = FetchWindow(
@@ -121,10 +156,77 @@ class XApiClientTests(unittest.TestCase):
         )
         stats = FetchStats()
 
-        user_resp = MagicMock(status_code=200)
-        user_resp.json.return_value = {"data": {"id": "999"}}
-        fail_resp = MagicMock(status_code=401, text="unauthorized")
-        client.session.get = MagicMock(side_effect=[fail_resp])
+        limited = MagicMock(status_code=429, text="rate limited", headers={"retry-after": "1"})
+        limited.json.return_value = {"detail": "Too Many Requests"}
+        ok = MagicMock(status_code=200)
+        ok.json.return_value = {
+            "data": [
+                {
+                    "id": "100",
+                    "text": "$AMD buy",
+                    "created_at": "2026-05-01T10:00:00.000Z",
+                    "public_metrics": {"like_count": 1},
+                    "entities": {"cashtags": [{"tag": "AMD"}]},
+                }
+            ],
+            "meta": {},
+        }
+        client.session.get = MagicMock(side_effect=[limited, ok])
+
+        with patch("stock_detect.x_api_client.time.sleep"):
+            posts = client.fetch_user_timeline(
+                "demo",
+                window=window,
+                max_pages=3,
+                max_posts=100,
+                stats=stats,
+                user_id="999",
+            )
+
+        self.assertEqual(len(posts), 1)
+        self.assertEqual(stats.pages_fetched, 1)
+        self.assertEqual(stats.pages_skipped, 0)
+        self.assertEqual(client.session.get.call_count, 2)
+
+    def test_rate_limit_exhausted_skips_page(self):
+        creds = XApiCredentials(bearer_token="token")
+        client = XApiClient(credentials=creds)
+        window = FetchWindow(
+            after=datetime(2026, 4, 1, tzinfo=timezone.utc),
+            before=datetime(2026, 6, 1, tzinfo=timezone.utc),
+        )
+        stats = FetchStats()
+
+        limited = MagicMock(status_code=429, text="rate limited", headers={"retry-after": "1"})
+        limited.json.return_value = {"detail": "Too Many Requests"}
+        client.session.get = MagicMock(return_value=limited)
+
+        with patch("stock_detect.x_api_client.time.sleep"):
+            posts = client.fetch_user_timeline(
+                "demo",
+                window=window,
+                max_pages=3,
+                max_posts=100,
+                stats=stats,
+                user_id="999",
+            )
+
+        self.assertEqual(posts, [])
+        self.assertEqual(stats.pages_skipped, 1)
+        self.assertEqual(client.session.get.call_count, 3)
+
+    def test_other_non_200_skips_page_without_retry(self):
+        creds = XApiCredentials(bearer_token="token")
+        client = XApiClient(credentials=creds)
+        window = FetchWindow(
+            after=datetime(2026, 4, 1, tzinfo=timezone.utc),
+            before=datetime(2026, 6, 1, tzinfo=timezone.utc),
+        )
+        stats = FetchStats()
+
+        fail_resp = MagicMock(status_code=404, text="not found", headers={})
+        fail_resp.json.return_value = {"detail": "Not Found"}
+        client.session.get = MagicMock(return_value=fail_resp)
 
         posts = client.fetch_user_timeline(
             "demo",
