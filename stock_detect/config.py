@@ -36,6 +36,70 @@ BUY_NEGATIONS = {"not buy", "don't buy", "dont buy", "do not buy", "never buy"}
 SELL_NEGATIONS = {"not sell", "don't sell", "dont sell", "do not sell", "never sell"}
 HOLD_NEGATIONS = {"not hold", "don't hold", "dont hold", "do not hold"}
 
+# Phrases where a BUY/SELL/HOLD keyword carries no directional meaning.
+#
+# 背景：关键词计数器会把「short sellers」「AI bears」「stop the bleeding」这类
+# 词当成作者本人的看空表态，但它们大多出现在作者**反驳空方**的语境里；
+# 同理「short term」（时间尺度）、「earnings call」（业绩电话会）、「put ... hat on」
+# （“戴上帽子”的动词 put）、「long term」（长期，不是做多）都是纯噪声。
+#
+# 实测（2026-08-24~31 @aleabitoreddit 107 帖）：13 次 SELL_WORDS 命中里 12 次
+# 是误报，导致 NVDA / SIVE / AAOI 全部被误标为 consensus="sell"。
+#
+# 评分前先把这些短语从文本里掩掉（而不是从词表里删词），这样「buy puts」
+# 「short $NVDA」这种真实表态仍能正常计分。模式均为小写匹配。
+NON_SIGNAL_PHRASES = (
+    # "short" 作为时间尺度 / 指代空方而非作者看空
+    r"short[\s-]+term",
+    r"short[\s-]+dated",
+    r"short[\s-]+lived",
+    r"short\s+sellers?",
+    r"short\s+interest",
+    r"short\s+squeeze",
+    r"short\s+report",
+    r"short\s+thesis",
+    r"shorts?\s+(?:are|were|got|keep|piling)",
+    r"in\s+short",
+    r"short\s+supply",
+    r"falls?\s+short",
+    r"fell\s+short",
+    # "put" 作为普通动词（非看跌期权）
+    r"put\s+(?:my|his|her|their|our|its|a|an|the|it|that|this|substantially|more|less|together|forth|out|off)\b",
+    r"put\s+\w+\s+hat\s+on",
+    r"puts?\s+it\b",
+    r"(?:was|were)\s+put\s+on",
+    # "call" 作为业绩会 / 电话会议（非看涨期权）
+    r"earnings\s+calls?",
+    r"conference\s+calls?",
+    r"analyst\s+calls?",
+    r"(?:the|these|those|their|his|her|its|entire|whole)\s+calls?\b",
+    r"on\s+the\s+call",
+    r"calls?\s+(?:for|it|him|her|them|into\s+question)\b",
+    # "long" 作为时间尺度（非做多）
+    r"long[\s-]+term",
+    r"long[\s-]+dated",
+    r"long[\s-]+run",
+    r"long[\s-]+standing",
+    r"how\s+long",
+    r"(?:as|so)\s+long\s+as",
+    # 看空阵营指代（作者通常在反驳他们）
+    r"(?:ai|the|these|those)\s+bears?\b",
+    r"permabear\w*",
+    r"bearish\s+(?:case|thesis|narrative|takes?|arguments?|sentiment)",
+    r"bear\s+(?:case|thesis|market|raid)",
+    # "sell" 的非表态用法
+    r"sell[\s-]+out\s+to",
+    r"sell[\s-]?side",
+    r"sell\s+order",
+    # "dump" 的非表态用法
+    r"data\s+dump",
+    # "hold" 的非表态用法
+    r"hold\s+(?:a|an|the)\s+(?:call|meeting|conference|vote)",
+    r"holding\s+company",
+    # 其他噪声
+    r"stop\s+the\s+bleeding",
+)
+
 # Tickers that are common English words — require $ prefix
 AMBIGUOUS_TICKERS = {
     "ALL", "ARE", "CEO", "DD", "DOW", "FAST", "INFO", "IP", "IT",

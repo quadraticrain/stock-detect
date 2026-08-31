@@ -14,6 +14,7 @@ from stock_detect.config import (
     CONSENSUS_THRESHOLD,
     HOLD_NEGATIONS,
     HOLD_WORDS,
+    NON_SIGNAL_PHRASES,
     PROACTIVE_FLAIRS,
     PROXIMITY_CHARS,
     REACTIVE_FLAIRS,
@@ -89,6 +90,24 @@ def _extract_tickers(
             counts[ticker] = counts.get(ticker, 0) + 1
 
     return counts
+
+
+_NON_SIGNAL_RE = re.compile("|".join(NON_SIGNAL_PHRASES), re.IGNORECASE)
+
+
+def mask_non_signal_phrases(text: str) -> str:
+    """把「含关键词但无方向含义」的短语抹成空白，避免误计分。
+
+    典型误报：「short sellers」「AI bears」「stop the bleeding」—— 这些词出现在作者
+    **反驳空方**的语境里，却被当成作者自己看空；还有「short/long term」（时间
+    尺度）、「earnings call」（业绩会）、「put my hat on」（普通动词）等。
+
+    用等长空格替代而非删除，以保持字符偏移不变——_proximity_score 依赖
+    代码位置周围的字符窗口，偏移一旦错位会把附近词算错。
+    """
+    if not text:
+        return text
+    return _NON_SIGNAL_RE.sub(lambda m: " " * len(m.group(0)), text)
 
 
 def _word_score(text: str, words: set[str], negations: set[str]) -> float:
@@ -174,13 +193,16 @@ def extract_post_signals(
 
     signals: list[PostSignal] = []
     preview = text.replace("\n", " ")[:120]
+    # 评分用掩蔽过的文本（去掉「short sellers」「earnings call」等无方向短语）；
+    # ticker 提取仍用原文，避免影响代码识别。
+    scored_text = mask_non_signal_phrases(text)
     for ticker in ticker_counts:
         if use_proximity:
-            buy = _proximity_score(text, ticker, BUY_WORDS)
+            buy = _proximity_score(scored_text, ticker, BUY_WORDS)
         else:
-            buy = _word_score(text, BUY_WORDS, BUY_NEGATIONS)
-        hold = _word_score(text, HOLD_WORDS, HOLD_NEGATIONS)
-        sell = _word_score(text, SELL_WORDS, SELL_NEGATIONS)
+            buy = _word_score(scored_text, BUY_WORDS, BUY_NEGATIONS)
+        hold = _word_score(scored_text, HOLD_WORDS, HOLD_NEGATIONS)
+        sell = _word_score(scored_text, SELL_WORDS, SELL_NEGATIONS)
 
         rec, b, h, s = _recommendation(buy, hold, sell)
         signals.append(
