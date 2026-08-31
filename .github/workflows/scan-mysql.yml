@@ -7,7 +7,11 @@ env:
 
 on:
   schedule:
-    - cron: "40 9 * * 6"  # every Saturday 17:40 Beijing (UTC+8)
+    # 每周六 17:40 北京时间（UTC+8）触发，但下方 gate job 会过滤成「隔周」，
+    # 实际执行频率是原来的一半。
+    # 注：cron 同时限定「日」和「星期」时是 OR 语义（如 "1-7,15-21 * 6"
+    # 会变成「那些日期每天 + 每个周六」，频率反而变高），所以不能用日期区间实现隔周。
+    - cron: "40 9 * * 6"
   workflow_dispatch:
     inputs:
       accounts:
@@ -36,7 +40,32 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # 频率闸门：只在 ISO 周数为偶数的周六真正执行抓取（即隔周一次）。
+  # 手动 workflow_dispatch 不受限制，随时可跑。
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.check.outputs.run }}
+    steps:
+      - id: check
+        run: |
+          if [ "${{ github.event_name }}" != "schedule" ]; then
+            echo "run=1" >> "$GITHUB_OUTPUT"
+            echo "手动触发，不限频率"
+            exit 0
+          fi
+          week=$(date -u +%V)
+          if [ $((10#$week % 2)) -eq 0 ]; then
+            echo "run=1" >> "$GITHUB_OUTPUT"
+            echo "ISO 周 $week 为偶数 → 本周执行"
+          else
+            echo "run=0" >> "$GITHUB_OUTPUT"
+            echo "ISO 周 $week 为奇数 → 本周跳过（隔周执行）"
+          fi
+
   scan:
+    needs: gate
+    if: needs.gate.outputs.run == '1'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
