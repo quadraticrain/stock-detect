@@ -35,7 +35,7 @@ Workflow 文件：`.github/workflows/scan-mysql.yml`
 
 > workflow 的 `SCHEDULED_ACCOUNTS` 仍包含 `justinsuntron`，但该账号已列入 `config.py` 的 `DISABLED_X_ACCOUNTS`，抓取入口会自动跳过，实际生效账号为 `aleabitoreddit`、`mingchikuo` 两个 X 账号 + 两个雪球账号。
 
-**手动触发**（Actions → *Scan MySQL (X fetch)* → Run workflow，或命令行）：
+**手动触发**（Actions → *X/雪球舆情抓取* → Run workflow，或命令行）：
 
 ```bash
 # 日常增量 / 单账号 63 天

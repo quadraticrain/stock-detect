@@ -1,4 +1,4 @@
-name: Scan MySQL (X fetch)
+name: X/雪球舆情抓取
 
 env:
   # Daily cron + workflow_dispatch default when accounts input is empty
