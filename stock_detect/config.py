@@ -64,6 +64,9 @@ EXTENDED_MAX_FETCH_POSTS = 25000
 GUEST_PAGES_PER_EXTRA_DAY = 3
 GUEST_POSTS_PER_EXTRA_DAY = 80
 REQUEST_DELAY_SEC = 1.5
+# X 平台专用抓取间隔：请求频率取 REQUEST_DELAY_SEC 的一半（间隔加倍），
+# 降低触发 X 限流/封禁的概率。Reddit / 雪球仍用 REQUEST_DELAY_SEC。
+X_REQUEST_DELAY_SEC = REQUEST_DELAY_SEC * 2
 REDDIT_PAGE_SIZE = 100
 
 # Default X accounts — AI/semi supply-chain analysts (X-first workflow)

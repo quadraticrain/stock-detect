@@ -18,9 +18,9 @@ from stock_detect.config import (
     INCREMENTAL_MAX_PAGES,
     MAX_FETCH_PAGES,
     MAX_FETCH_POSTS,
-    REQUEST_DELAY_SEC,
     USER_AGENT,
     X_API_TIMELINE_EXCLUDES,
+    X_REQUEST_DELAY_SEC,
 )
 from stock_detect.fetch_budget import extended_fetch_budget, incremental_api_pages
 from stock_detect.fetch_window import (
@@ -106,7 +106,7 @@ class TwitterFetcher:
             total_api_posts_new += stats.api_posts_new
             for post in batch:
                 posts_by_id.setdefault(post.id, post)
-            time.sleep(REQUEST_DELAY_SEC)
+            time.sleep(X_REQUEST_DELAY_SEC)
 
         raw_posts = list(posts_by_id.values())
         stats.posts_raw = len(raw_posts)
@@ -680,7 +680,7 @@ class TwitterFetcher:
                 break
 
             cursor = next_cursor
-            time.sleep(REQUEST_DELAY_SEC)
+            time.sleep(X_REQUEST_DELAY_SEC)
 
         if not stream_available and operation not in stats.streams_unavailable:
             stats.streams_unavailable.append(operation)

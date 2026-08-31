@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 
 import requests
 
-from stock_detect.config import REQUEST_DELAY_SEC, USER_AGENT, X_API_TIMELINE_EXCLUDES
+from stock_detect.config import USER_AGENT, X_API_TIMELINE_EXCLUDES, X_REQUEST_DELAY_SEC
 from stock_detect import config
 from stock_detect.fetch_window import FetchStats, FetchWindow
 from stock_detect.models import SocialPost
@@ -182,13 +182,13 @@ class XApiClient:
             if not page_posts:
                 if not token:
                     break
-                time.sleep(REQUEST_DELAY_SEC)
+                time.sleep(X_REQUEST_DELAY_SEC)
                 continue
             posts_seen += len(page_posts)
             yield page_posts
             if not token:
                 break
-            time.sleep(REQUEST_DELAY_SEC)
+            time.sleep(X_REQUEST_DELAY_SEC)
 
     def _fetch_timeline_page(
         self,
@@ -276,7 +276,7 @@ class XApiClient:
 
             if not pagination_token or not page_posts:
                 break
-            time.sleep(REQUEST_DELAY_SEC)
+            time.sleep(X_REQUEST_DELAY_SEC)
 
         return posts[:max_posts]
 
