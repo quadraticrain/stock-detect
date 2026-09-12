@@ -5,7 +5,7 @@
 >
 > | 执行方式 | Agent | 适用场景 | 跳转到 |
 > |----------|-------|----------|--------|
-> | **OpenClaw 定时（生产）** | OpenClaw | 每天北京时间 23:00 自动跑 | [二、OpenClaw 自动执行](#二openclaw-自动执行) |
+> | **OpenClaw 定时（生产）** | OpenClaw | 每周日北京时间 11:30 自动跑 | [二、OpenClaw 自动执行](#二openclaw-自动执行) |
 > | **本地手动** | Cursor / WorkBuddy / 任意 AI + 脚本 | 排障、补跑、验收 | [三、本地手动执行](#三本地手动执行) |
 >
 > 任务逻辑、断点机制、Ticker 映射、态度分级对两种方式 **完全相同**。  
@@ -117,16 +117,18 @@
 
 ## 二、OpenClaw 自动执行
 
-> **注意**：本节调度仅指 **OpenClaw AI 舆情分析**（`stock-detect-ai-analysis`），**不包含** GitHub Actions 的 X 抓取 workflow（`scan-mysql.yml`，北京时间 17:40）。
+> **注意**：本节调度仅指 **OpenClaw AI 舆情分析**（`stock-detect-ai-analysis`），**不包含** GitHub Actions 的 X 抓取 workflow（`scan-mysql.yml`，北京时间周六 17:40）。
+>
+> **运行时配置**（cron、投递、超时、Bark 汇总步骤的完整原文）见 [`AI_TASK.md`](AI_TASK.md)；本节仅保留分析规范与 Prompt 说明。
 
 ### 调度配置
 
 | 项 | 值 |
 |----|-----|
 | 任务名 | `stock-detect-ai-analysis` |
-| 执行时间 | 每天 **北京时间 23:00**（OpenClaw AI 任务；CI 抓取 17:40） |
+| 执行时间 | 每周日 **北京时间 11:30**（OpenClaw AI 任务；CI 抓取周六 17:40） |
 | 时区 | `Asia/Shanghai` |
-| Cron | `0 23 * * *` |
+| Cron | `30 11 * * 0` |
 | 环境变量 | `MYSQL_PASSWORD`（必填） |
 | 单批上限 | 300–500 帖/账号/次 |
 
@@ -360,6 +362,7 @@ LIMIT 20;
 | 文件 | 用途 |
 |------|------|
 | `AI_ANALYSIS.md` | **本文档**（任务规范 + OpenClaw Prompt + 本地工具链） |
+| `AI_TASK.md` | OpenClaw AI 定时任务的调度与运行时配置（cron / 投递 / Bark 步骤） |
 | `scripts/ai_analysis_helper.py` | MySQL 读写主工具 |
 | `scripts/gen_alea_run.py` / `gen_elon_run.py` | 账号语义判断承载 |
 | `scripts/purge_account.py` | 删除指定账号缓存与 AI 数据 |

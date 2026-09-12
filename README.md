@@ -38,7 +38,7 @@
 | `scan-mysql.yml` | **每周六 17:40** | 抓 X / 雪球推文入 MySQL |
 | `earnings.yml` | 周一~周五 08:00 | 财报日历 → JSON → Bark 分发 |
 | `ipo.yml` | 周一~周五 09:00 | A 股打新 / 可转债 / 港股 IPO → Bark |
-| OpenClaw AI 分析 | 每天 23:00 | 读库做语义分析，写 AI 结果表 |
+| OpenClaw AI 分析 | **每周日 11:30** | 读库做语义分析，写 AI 结果表；完成后推 Bark 汇总 |
 
 > GitHub Actions 的 `schedule` **不保证准时**，实际常延迟数小时；上表为 cron 配置的计划时间。
 
@@ -112,12 +112,16 @@ gh workflow run scan-mysql.yml \
 
 | 项 | 值 |
 |----|-----|
-| 调度 | 每天 **北京时间 23:00**（OpenClaw 任务；GitHub Actions 抓取为每周六 17:40） |
+| 任务名 | `stock-detect-ai-analysis`（OpenClaw cron） |
+| 调度 | 每周日 **北京时间 11:30**（OpenClaw 任务；GitHub Actions 抓取为每周六 17:40） |
 | 输入 | MySQL `stock_detect_x_posts`（**增量断点**续跑，不重复分析已处理帖） |
 | 输出 | `stock_detect_ai_runs`、`stock_detect_ai_signals`、`stock_detect_ai_consensus`、`stock_detect_ai_top_tickers` |
+| 额外步骤 | 分析完成后运行 `stock_detect_bark_summary.py` 推一条 Bark 汇总（按提及帖数挑重点股票） |
 | 与关键词报告的区别 | GolangCalculateServer 报告用固定词表；**AI 任务做自然语言语义分析**（buy/hold/sell/neutral、共识、热门 ticker） |
 
-OpenClaw 与本地手动为 **同一 AI 任务**（仅 Agent 不同），完整规范见 [`AI_ANALYSIS.md`](AI_ANALYSIS.md)（含 OpenClaw Prompt 与 `scripts/ai_analysis_helper.py` 手动流程）。
+- 任务的**调度与运行时配置**（cron、投递、超时、Bark 步骤原文）见 [`AI_TASK.md`](AI_TASK.md)。
+- 任务的**分析规范**（Ticker 映射、态度分级、雪球转发、断点字段）见 [`AI_ANALYSIS.md`](AI_ANALYSIS.md)。
+- OpenClaw 与本地手动为 **同一 AI 任务**（仅 Agent 不同），本地手动流程见 `AI_ANALYSIS.md` 第三章（含 `scripts/ai_analysis_helper.py`）。
 
 ### 财报 / IPO 推送（原 stock-push）
 
