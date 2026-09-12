@@ -10,7 +10,7 @@
 
 - [定时任务概览](#定时任务概览)
   - [X 数据抓取](#x-数据抓取scan-mysqlyml)
-  - [AI 舆情分析（OpenClaw）](#ai-舆情分析openclaw)
+  - [AI 舆情分析（WorkBuddy）](#ai-舆情分析workbuddy)
   - [财报 / IPO 推送（原 stock-push）](#财报--ipo-推送原-stock-push)
 - [信号源优先级](#信号源优先级)
 - [默认监控账号](#默认监控账号)
@@ -31,14 +31,14 @@
 
 ## 定时任务概览
 
-本仓库目前有 **3 个 GitHub Actions workflow** + **1 个 OpenClaw 任务**，彼此独立、互不影响：
+本仓库目前有 **3 个 GitHub Actions workflow** + **1 个 WorkBuddy 定时任务**，彼此独立、互不影响：
 
 | Workflow / 任务 | 调度（北京时间） | 作用 |
 |-----------------|------------------|------|
 | `scan-mysql.yml` | **每周六 17:40** | 抓 X / 雪球推文入 MySQL |
 | `earnings.yml` | 周一~周五 08:00 | 财报日历 → JSON → Bark 分发 |
 | `ipo.yml` | 周一~周五 09:00 | A 股打新 / 可转债 / 港股 IPO → Bark |
-| OpenClaw AI 分析 | **每周日 11:30** | 读库做语义分析，写 AI 结果表；完成后推 Bark 汇总 |
+| WorkBuddy AI 分析 | **每周日 11:01** | 读库做语义分析，写 AI 结果表；完成后推 Bark 汇总 |
 
 > GitHub Actions 的 `schedule` **不保证准时**，实际常延迟数小时；上表为 cron 配置的计划时间。
 
@@ -108,12 +108,12 @@ gh workflow run scan-mysql.yml \
 
 脚本从本机 Chromium 系浏览器读取 `xueqiu.com` Cookie，并执行 `gh secret set XUEQIU_COOKIE`；不保存雪球账号密码。
 
-### AI 舆情分析（OpenClaw）
+### AI 舆情分析（WorkBuddy）
 
 | 项 | 值 |
 |----|-----|
-| 任务名 | `stock-detect-ai-analysis`（OpenClaw cron） |
-| 调度 | 每周日 **北京时间 11:30**（OpenClaw 任务；GitHub Actions 抓取为每周六 17:40） |
+| 任务名 | `stock-detect-ai-analysis`（WorkBuddy 定时任务） |
+| 调度 | 每周日 **北京时间 11:01**（WorkBuddy 任务；GitHub Actions 抓取为每周六 17:40） |
 | 输入 | MySQL `stock_detect_x_posts`（**增量断点**续跑，不重复分析已处理帖） |
 | 输出 | `stock_detect_ai_runs`、`stock_detect_ai_signals`、`stock_detect_ai_consensus`、`stock_detect_ai_top_tickers` |
 | 额外步骤 | 分析完成后运行 `stock_detect_bark_summary.py` 推一条 Bark 汇总（按提及帖数挑重点股票） |
@@ -121,7 +121,7 @@ gh workflow run scan-mysql.yml \
 
 - 任务的**调度与运行时配置**（cron、投递、超时、Bark 步骤原文）见 [`AI_TASK.md`](AI_TASK.md)。
 - 任务的**分析规范**（Ticker 映射、态度分级、雪球转发、断点字段）见 [`AI_ANALYSIS.md`](AI_ANALYSIS.md)。
-- OpenClaw 与本地手动为 **同一 AI 任务**（仅 Agent 不同），本地手动流程见 `AI_ANALYSIS.md` 第三章（含 `scripts/ai_analysis_helper.py`）。
+- WorkBuddy 与本地手动为 **同一 AI 任务**（仅 Agent 不同），本地手动流程见 `AI_ANALYSIS.md` 第三章（含 `scripts/ai_analysis_helper.py`）。
 
 ### 财报 / IPO 推送（原 stock-push）
 

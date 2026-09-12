@@ -5,7 +5,7 @@
 >
 > | 执行方式 | Agent | 适用场景 | 跳转到 |
 > |----------|-------|----------|--------|
-> | **OpenClaw 定时（生产）** | OpenClaw | 每周日北京时间 11:30 自动跑 | [二、OpenClaw 自动执行](#二openclaw-自动执行) |
+> | **WorkBuddy 定时（生产）** | WorkBuddy | 每周日北京时间 11:01 自动跑 | [二、定时自动执行（WorkBuddy）](#二定时自动执行workbuddy) |
 > | **本地手动** | Cursor / WorkBuddy / 任意 AI + 脚本 | 排障、补跑、验收 | [三、本地手动执行](#三本地手动执行) |
 >
 > 任务逻辑、断点机制、Ticker 映射、态度分级对两种方式 **完全相同**。  
@@ -115,9 +115,9 @@
 
 ---
 
-## 二、OpenClaw 自动执行
+## 二、定时自动执行（WorkBuddy）
 
-> **注意**：本节调度仅指 **OpenClaw AI 舆情分析**（`stock-detect-ai-analysis`），**不包含** GitHub Actions 的 X 抓取 workflow（`scan-mysql.yml`，北京时间周六 17:40）。
+> **注意**：本节调度仅指 **WorkBuddy AI 舆情分析**（`stock-detect-ai-analysis`，每周日 11:01），**不包含** GitHub Actions 的 X 抓取 workflow（`scan-mysql.yml`，北京时间周六 17:40）。
 >
 > **运行时配置**（cron、投递、超时、Bark 汇总步骤的完整原文）见 [`AI_TASK.md`](AI_TASK.md)；本节仅保留分析规范与 Prompt 说明。
 
@@ -126,17 +126,17 @@
 | 项 | 值 |
 |----|-----|
 | 任务名 | `stock-detect-ai-analysis` |
-| 执行时间 | 每周日 **北京时间 11:30**（OpenClaw AI 任务；CI 抓取周六 17:40） |
+| 执行时间 | 每周日 **北京时间 11:01**（WorkBuddy AI 任务；CI 抓取周六 17:40） |
 | 时区 | `Asia/Shanghai` |
-| Cron | `30 11 * * 0` |
+| 调度 | `FREQ=WEEKLY;BYDAY=SU;BYHOUR=11;BYMINUTE=1` |
 | 环境变量 | `MYSQL_PASSWORD`（必填） |
 | 单批上限 | 300–500 帖/账号/次 |
 
-将下方 **系统 Prompt** 与 **用户 Prompt** 复制到 OpenClaw 即可。
+将下方 **系统 Prompt** 与 **用户 Prompt** 复制到 WorkBuddy 定时任务的 Prompt 即可。
 
 ### 系统 Prompt（System）
 
-> 复制到 OpenClaw 时，请使用下方完整块（已内嵌分析规则，无需再引用其他文件）。
+> 复制到 WorkBuddy 时，请使用下方完整块（已内嵌分析规则，无需再引用其他文件）。
 
 ```
 你是 stock-detect 项目的 AI 舆情分析师。你连接 MySQL，按**增量断点**读取 X 推文，做语义级 Signals / Consensus / Top Tickers 分析，写入 4 张 AI 表，并在结束时**必须**保存 checkpoint 供下次定时任务续跑。
@@ -267,7 +267,7 @@ LIMIT 20;
 
 ## 三、本地手动执行
 
-与 OpenClaw **同一任务、同一断点、同一四表**；区别是 Agent 在本地（Cursor 等），MySQL 读写通过脚本完成。
+与 WorkBuddy 定时任务 **同一任务、同一断点、同一四表**；区别是 Agent 在本地交互式会话（Cursor 等），MySQL 读写通过脚本完成。
 
 ### `scripts/ai_analysis_helper.py` — 读写主工具
 
@@ -322,20 +322,20 @@ LIMIT 20;
 
 读取 `fetch` 输出，按第一章规则生成 `write-run` 所需的 run JSON。
 
-> ⚠️ **不要新增关键词规则引擎脚本**。曾有提案新增 `scripts/alea_auto_batch.py`（关键词命中 → 直接输出 recommendation/confidence，不经 AI 阅读原文），已被否决：违反本文第一章 v5.7 语义优先原则，且无法处理反讽、否定式（如 “I would never buy” 会命中 buy）与上下文歧义。历史积压已由 OpenClaw 定时任务消化完毕，不存在需要批量规则引擎的场景。
+> ⚠️ **不要新增关键词规则引擎脚本**。曾有提案新增 `scripts/alea_auto_batch.py`（关键词命中 → 直接输出 recommendation/confidence，不经 AI 阅读原文），已被否决：违反本文第一章 v5.7 语义优先原则，且无法处理反讽、否定式（如 “I would never buy” 会命中 buy）与上下文歧义。历史积压已由定时任务消化完毕，不存在需要批量规则引擎的场景。
 
 ---
 
 ## 四、运维：移除账号
 
-从定时 CI / OpenClaw 账号列表移除某博主后，**手动**清理 MySQL：
+从定时 CI / 定时任务账号列表移除某博主后，**手动**清理 MySQL：
 
 ```bash
 .venv/bin/python scripts/purge_account.py --account SpeakerPelosi --dry-run
 .venv/bin/python scripts/purge_account.py --account BofA_News --yes
 ```
 
-`purge_account.py` 不会被 CI 或 OpenClaw 自动调用。
+`purge_account.py` 不会被 CI 或定时任务自动调用。
 
 ---
 
@@ -348,7 +348,7 @@ LIMIT 20;
 | aleabitoreddit | 400 | 1034 | partial | 首次全量，仍有剩余 |
 | HillaryClinton | 69 | 0 | completed | 已移除 |
 
-### 其他 OpenClaw 扫库任务套用断点原则
+### 其他扫库定时任务套用断点原则
 
 | 任务 | 断点键 |
 |------|--------|
@@ -361,8 +361,8 @@ LIMIT 20;
 
 | 文件 | 用途 |
 |------|------|
-| `AI_ANALYSIS.md` | **本文档**（任务规范 + OpenClaw Prompt + 本地工具链） |
-| `AI_TASK.md` | OpenClaw AI 定时任务的调度与运行时配置（cron / 投递 / Bark 步骤） |
+| `AI_ANALYSIS.md` | **本文档**（任务规范 + 定时任务 Prompt + 本地工具链） |
+| `AI_TASK.md` | AI 定时任务的调度与运行时配置（调度 / 投递 / Bark 步骤） |
 | `scripts/ai_analysis_helper.py` | MySQL 读写主工具 |
 | `scripts/gen_alea_run.py` / `gen_elon_run.py` | 账号语义判断承载 |
 | `scripts/purge_account.py` | 删除指定账号缓存与 AI 数据 |
