@@ -31,13 +31,14 @@
 
 ## 定时任务概览
 
-本仓库目前有 **3 个 GitHub Actions workflow** + **1 个 WorkBuddy 定时任务**，彼此独立、互不影响：
+本仓库目前有 **3 个 GitHub Actions workflow** + **2 个 WorkBuddy 定时任务**，彼此独立、互不影响：
 
 | Workflow / 任务 | 调度（北京时间） | 作用 |
 |-----------------|------------------|------|
-| `scan-mysql.yml` | **每周六 17:40** | 抓 X / 雪球推文入 MySQL |
+| `scan-mysql.yml` | **每周六 17:40** | 抓 X 推文入 MySQL |
 | `earnings.yml` | 周一~周五 08:00 | 财报日历 → JSON → Bark 分发 |
 | `ipo.yml` | 周一~周五 09:00 | A 股打新 / 可转债 / 港股 IPO → Bark |
+| WorkBuddy 雪球抓取 | **每周日 09:01** | 本地抓雪球推文入 MySQL（cookie 过期自动从 Chrome 刷新） |
 | WorkBuddy AI 分析 | **每周日 11:01** | 读库做语义分析，写 AI 结果表；完成后推 Bark 汇总 |
 
 > GitHub Actions 的 `schedule` **不保证准时**，实际常延迟数小时；上表为 cron 配置的计划时间。
@@ -50,11 +51,13 @@ Workflow 文件：`.github/workflows/scan-mysql.yml`
 |----|-----|
 | 定时 | **每周六 北京时间 17:40**（cron `40 9 * * 6`，UTC） |
 | 超时 | `timeout-minutes: 90` |
-| 默认账号 | `aleabitoreddit`, `mingchikuo`, `xueqiu:1247347556`（段永平雪球）, `xueqiu:1102105103`（但斌雪球） |
+| 默认账号 | `aleabitoreddit`, `mingchikuo` |
 | 默认窗口 | **63 天**（X API 可读范围；更早历史需 Guest 回填） |
 | 写入 | MySQL `stock_detect_x_posts`、`stock_detect_x_fetch_state` |
-| 所需 Secret | `MYSQL_PASSWORD`、`X_BEARER_TOKEN`、`XUEQIU_COOKIE` |
-| 失败通知 | 任一步骤失败时推 Bark（`stock-detect` 分组），提示 X API 额度/token 或 `XUEQIU_COOKIE` 问题 |
+| 所需 Secret | `MYSQL_PASSWORD`、`X_BEARER_TOKEN` |
+| 失败通知 | 任一步骤失败时推 Bark（`stock-detect` 分组），提示 X API 额度/token 问题 |
+
+> 雪球账号抓取已迁移到本地（见下节「雪球抓取（本地）」），不再经 GitHub Actions，`XUEQIU_COOKIE` Secret 已废弃。
 
 ### X API 错误处理（重要）
 
@@ -74,7 +77,7 @@ Workflow 文件：`.github/workflows/scan-mysql.yml`
   自查：`curl -H "Authorization: Bearer $X_BEARER_TOKEN" https://api.twitter.com/2/users/by/username/aleabitoreddit`
 - **`401 Unauthorized`** —— `X_BEARER_TOKEN` 失效或被注销，轮换 GitHub Secret。
 
-> workflow 的 `SCHEDULED_ACCOUNTS` 仍包含 `justinsuntron`，但该账号已列入 `config.py` 的 `DISABLED_X_ACCOUNTS`，抓取入口会自动跳过，实际生效账号为 `aleabitoreddit`、`mingchikuo` 两个 X 账号 + 两个雪球账号。
+> workflow 的 `SCHEDULED_ACCOUNTS` 仍包含 `justinsuntron`，但该账号已列入 `config.py` 的 `DISABLED_X_ACCOUNTS`，抓取入口会自动跳过，实际生效账号为 `aleabitoreddit`、`mingchikuo` 两个 X 账号。
 
 **手动触发**（Actions → *X/雪球舆情抓取* → Run workflow，或命令行）：
 
@@ -99,21 +102,37 @@ gh workflow run scan-mysql.yml \
 
 查看进度：`gh run list --repo quadraticrain/stock-detect --workflow=scan-mysql.yml --limit 3`
 
-雪球 Cookie 半自动刷新（本机浏览器保持雪球登录后执行）：
+### 雪球抓取（本地）
+
+雪球账号（段永平 `1247347556`、但斌 `1102105103`）的推文抓取已从 GitHub Actions 迁移到本机（WorkBuddy 定时任务，每周日 09:01），入口脚本：
 
 ```bash
-./scripts/sync_xueqiu_cookie_secret.py --dry-run
-./scripts/sync_xueqiu_cookie_secret.py --repo quadraticrain/stock-detect
+./scripts/local_xueqiu_fetch.py
 ```
 
-脚本从本机 Chromium 系浏览器读取 `xueqiu.com` Cookie，并执行 `gh secret set XUEQIU_COOKIE`；不保存雪球账号密码。
+脚本流程：读 `.env` 里的 `XUEQIU_COOKIE` → 探测是否过期 → 过期则从本机 Chrome 读取新 cookie 并写回 `.env` → 抓帖入库。cookie 刷新失败（例如 Chrome 未登录雪球）时会推 Bark 告警。
+
+Chrome cookie 解密需要浏览器的 "Safe Storage" 密钥，解析顺序为：环境变量 `CHROME_SAFE_STORAGE_PASSWORD` → 状态文件 `.workbuddy/state/chrome_safe_storage` → 本机钥匙串（`security find-generic-password -w -s "Chrome Safe Storage"`）。若担心自动化环境无法弹出钥匙串授权框，可一次性把密钥写入状态文件：
+
+```bash
+mkdir -p .workbuddy/state
+security find-generic-password -w -s "Chrome Safe Storage" > .workbuddy/state/chrome_safe_storage
+```
+
+手动刷新 `.env` 里的 `XUEQIU_COOKIE`：
+
+```bash
+./scripts/sync_xueqiu_cookie_secret.py
+```
+
+脚本只读取浏览器 cookie，不保存雪球账号密码。
 
 ### AI 舆情分析（WorkBuddy）
 
 | 项 | 值 |
 |----|-----|
 | 任务名 | `stock-detect-ai-analysis`（WorkBuddy 定时任务） |
-| 调度 | 每周日 **北京时间 11:01**（WorkBuddy 任务；GitHub Actions 抓取为每周六 17:40） |
+| 调度 | 每周日 **北京时间 11:01**（WorkBuddy 任务；X 抓取每周六 17:40、雪球本地抓取每周日 09:01 先行） |
 | 输入 | MySQL `stock_detect_x_posts`（**增量断点**续跑，不重复分析已处理帖） |
 | 输出 | `stock_detect_ai_runs`、`stock_detect_ai_signals`、`stock_detect_ai_consensus`、`stock_detect_ai_top_tickers` |
 | 额外步骤 | 分析完成后运行 `stock_detect_bark_summary.py` 推一条 Bark 汇总（按提及帖数挑重点股票） |
@@ -241,12 +260,11 @@ MYSQL_PASSWORD=你的数据库密码
 |--------|------|--------|
 | `MYSQL_PASSWORD` | MySQL 写账号密码 | `scan-mysql.yml` |
 | `X_BEARER_TOKEN` | X 官方 API Bearer Token（读推文必需，**勿写入代码**） | `scan-mysql.yml` |
-| `XUEQIU_COOKIE` | 雪球登录 Cookie（段永平/但斌雪球抓取；可用 `scripts/sync_xueqiu_cookie_secret.py` 更新） | `scan-mysql.yml` |
 | `DB_HOST` / `DB_PORT` / `DB_USER` / `DB_PASSWORD` / `DB_NAME` | 同一个 `cache_data` 库的连接信息 | `earnings.yml` / `ipo.yml` |
 | `BARK_URL` | Bark 推送地址 | `ipo.yml` |
 | `EARNINGS_PUSH_API` | 财报 JSON 分发 API（可选） | `earnings.yml` |
 
-> 共 **9 个 Secret**。`MYSQL_PASSWORD` 与 `DB_PASSWORD` 指向同一个密码，详见上文财报/IPO 章节的轮换提醒。
+> 共 **8 个 Secret**。`MYSQL_PASSWORD` 与 `DB_PASSWORD` 指向同一个密码，详见上文财报/IPO 章节的轮换提醒。雪球 `XUEQIU_COOKIE` 已废弃（改用本地 `.env`，由 `scripts/local_xueqiu_fetch.py` 自动刷新）。
 
 报告 JSON 的 `fetch_stats` 会包含 `cache_posts`（窗口内缓存条数）与 `api_posts_new`（本次新写入条数）。`streams_used` 含 `MySQLCache`。
 

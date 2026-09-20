@@ -32,6 +32,27 @@ class XueqiuFetcher:
         if cookie:
             self.session.headers["Cookie"] = cookie
 
+    def cookie_is_valid(self) -> bool:
+        """Probe the timeline API to detect an expired/invalid login cookie.
+
+        An expired cookie yields HTTP 400 with error_code 400016; a valid
+        logged-in cookie yields HTTP 200 with a `statuses` key (even if empty).
+        """
+        try:
+            response = self.session.get(
+                "https://xueqiu.com/statuses/user_timeline.json",
+                params={"user_id": DUAN_YONGPING_USER_ID, "page": 1, "count": 1},
+                timeout=20,
+            )
+        except Exception:
+            return False
+        if response.status_code != 200:
+            return False
+        try:
+            return "statuses" in response.json()
+        except ValueError:
+            return False
+
     def fetch_user_posts(
         self,
         user_id: str = DUAN_YONGPING_USER_ID,

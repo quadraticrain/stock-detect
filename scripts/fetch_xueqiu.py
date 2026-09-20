@@ -10,7 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from stock_detect.config import CI_SCHEDULED_XUEQIU_USERS, FETCH_WINDOW_DAYS, MAX_FETCH_PAGES, MAX_FETCH_POSTS  # noqa: E402
+from stock_detect.config import SCHEDULED_XUEQIU_USERS, FETCH_WINDOW_DAYS, MAX_FETCH_PAGES, MAX_FETCH_POSTS  # noqa: E402
 from stock_detect.env import bootstrap  # noqa: E402
 from stock_detect.fetch_window import default_fetch_window  # noqa: E402
 from stock_detect.tweet_cache import TweetCache  # noqa: E402
@@ -24,7 +24,7 @@ def _users(value: str) -> list[str]:
 def main() -> int:
     bootstrap()
     parser = argparse.ArgumentParser(description="Fetch Xueqiu posts into MySQL")
-    parser.add_argument("--users", default=",".join(CI_SCHEDULED_XUEQIU_USERS))
+    parser.add_argument("--users", default=",".join(SCHEDULED_XUEQIU_USERS))
     parser.add_argument("--window-days", type=int, default=FETCH_WINDOW_DAYS)
     parser.add_argument("--limit", type=int, default=MAX_FETCH_POSTS)
     parser.add_argument("--max-pages", type=int, default=MAX_FETCH_PAGES)

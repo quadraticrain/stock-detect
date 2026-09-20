@@ -142,8 +142,10 @@ CI_SCHEDULED_X_ACCOUNTS = (
     "justinsuntron",
 )
 CI_SCHEDULED_X_ACCOUNTS_CSV = ",".join(CI_SCHEDULED_X_ACCOUNTS)
-CI_SCHEDULED_XUEQIU_USERS = ("1247347556", "1102105103")  # 段永平, 但斌
-CI_SCHEDULED_XUEQIU_ACCOUNTS = tuple(f"xueqiu:{user}" for user in CI_SCHEDULED_XUEQIU_USERS)
+# Xueqiu users (段永平, 但斌) — fetched locally (scripts/local_xueqiu_fetch.py),
+# no longer via GitHub Actions (cookie refresh runs on the local Mac).
+SCHEDULED_XUEQIU_USERS = ("1247347556", "1102105103")  # 段永平, 但斌
+SCHEDULED_XUEQIU_ACCOUNTS = tuple(f"xueqiu:{user}" for user in SCHEDULED_XUEQIU_USERS)
 
 # Accounts explicitly removed from future monitoring. Keep historical MySQL rows,
 # but ignore these accounts in scheduled/manual fetch entrypoints.
@@ -179,7 +181,7 @@ def active_scheduled_x_accounts() -> tuple[str, ...]:
 
 
 def active_scheduled_social_accounts() -> tuple[str, ...]:
-    return active_scheduled_x_accounts() + CI_SCHEDULED_XUEQIU_ACCOUNTS
+    return active_scheduled_x_accounts() + SCHEDULED_XUEQIU_ACCOUNTS
 
 # X API timeline: exclude retweets only (includes replies + originals; single pass)
 X_API_TIMELINE_EXCLUDES = ("retweets",)

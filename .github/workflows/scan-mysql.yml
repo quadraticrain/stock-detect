@@ -1,9 +1,8 @@
-name: X/雪球舆情抓取
+name: X 舆情抓取
 
 env:
   # Daily cron + workflow_dispatch default when accounts input is empty
   SCHEDULED_ACCOUNTS: aleabitoreddit,mingchikuo,justinsuntron
-  SCHEDULED_XUEQIU_USERS: "1247347556,1102105103"
 
 on:
   schedule:
@@ -92,17 +91,6 @@ jobs:
             --limit "${{ steps.caps.outputs.max_posts }}" \
             --max-pages "${{ steps.caps.outputs.max_pages }}"
 
-      - name: Fetch Xueqiu into MySQL
-        env:
-          MYSQL_PASSWORD: ${{ secrets.MYSQL_PASSWORD }}
-          XUEQIU_COOKIE: ${{ secrets.XUEQIU_COOKIE }}
-        run: |
-          python scripts/fetch_xueqiu.py \
-            --users "${{ env.SCHEDULED_XUEQIU_USERS }}" \
-            --window-days "${{ github.event.inputs.window_days || '63' }}" \
-            --limit "${{ steps.caps.outputs.max_posts }}" \
-            --max-pages "${{ steps.caps.outputs.max_pages }}"
-
       - name: MySQL coverage report
         env:
           MYSQL_PASSWORD: ${{ secrets.MYSQL_PASSWORD }}
@@ -125,7 +113,7 @@ jobs:
               os.environ["BARK_PUSH_URL"],
               json={
                   "title": "stock-detect 每日抓取失败",
-                  "body": f"X/雪球抓取失败：X API 额度耗尽或 token 失效，或 XUEQIU_COOKIE 需刷新。{os.environ['RUN_URL']}",
+                  "body": f"X 抓取失败：X API 额度耗尽或 token 失效。{os.environ['RUN_URL']}",
                   "group": "stock-detect",
                   "level": "timeSensitive",
               },
