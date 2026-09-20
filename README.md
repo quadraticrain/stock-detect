@@ -31,15 +31,14 @@
 
 ## 定时任务概览
 
-本仓库目前有 **3 个 GitHub Actions workflow** + **2 个 WorkBuddy 定时任务**，彼此独立、互不影响：
+本仓库目前有 **3 个 GitHub Actions workflow** + **1 个 WorkBuddy 定时任务**，彼此独立、互不影响：
 
 | Workflow / 任务 | 调度（北京时间） | 作用 |
 |-----------------|------------------|------|
 | `scan-mysql.yml` | **每周六 17:40** | 抓 X 推文入 MySQL |
 | `earnings.yml` | 周一~周五 08:00 | 财报日历 → JSON → Bark 分发 |
 | `ipo.yml` | 周一~周五 09:00 | A 股打新 / 可转债 / 港股 IPO → Bark |
-| WorkBuddy 雪球抓取 | **每周日 09:01** | 本地抓雪球推文入 MySQL（cookie 过期自动从 Chrome 刷新） |
-| WorkBuddy AI 分析 | **每周日 11:01** | 读库做语义分析，写 AI 结果表；完成后推 Bark 汇总 |
+| WorkBuddy AI 分析 | **每周日 11:01** | 先本地抓雪球推文（cookie 过期自动从 Chrome 刷新），再读库做语义分析；完成后推 Bark 汇总 |
 
 > GitHub Actions 的 `schedule` **不保证准时**，实际常延迟数小时；上表为 cron 配置的计划时间。
 
@@ -104,7 +103,7 @@ gh workflow run scan-mysql.yml \
 
 ### 雪球抓取（本地）
 
-雪球账号（段永平 `1247347556`、但斌 `1102105103`）的推文抓取已从 GitHub Actions 迁移到本机（WorkBuddy 定时任务，每周日 09:01），入口脚本：
+雪球账号（段永平 `1247347556`、但斌 `1102105103`）的推文抓取已从 GitHub Actions 迁移到本机，并整合为「AI 舆情分析」定时任务的前置步骤（每周日 11:01 分析前先抓取），入口脚本：
 
 ```bash
 ./scripts/local_xueqiu_fetch.py
@@ -132,7 +131,7 @@ security find-generic-password -w -s "Chrome Safe Storage" > .workbuddy/state/ch
 | 项 | 值 |
 |----|-----|
 | 任务名 | `stock-detect-ai-analysis`（WorkBuddy 定时任务） |
-| 调度 | 每周日 **北京时间 11:01**（WorkBuddy 任务；X 抓取每周六 17:40、雪球本地抓取每周日 09:01 先行） |
+| 调度 | 每周日 **北京时间 11:01**（WorkBuddy 任务；X 抓取每周六 17:40，雪球本地抓取作为本任务**前置步骤**先行） |
 | 输入 | MySQL `stock_detect_x_posts`（**增量断点**续跑，不重复分析已处理帖） |
 | 输出 | `stock_detect_ai_runs`、`stock_detect_ai_signals`、`stock_detect_ai_consensus`、`stock_detect_ai_top_tickers` |
 | 额外步骤 | 分析完成后运行 `stock_detect_bark_summary.py` 推一条 Bark 汇总（按提及帖数挑重点股票） |
