@@ -264,7 +264,7 @@ MYSQL_PASSWORD=你的数据库密码
 | `BARK_URL` | Bark 推送地址 | `ipo.yml` |
 | `EARNINGS_PUSH_API` | 财报 JSON 分发 API（可选） | `earnings.yml` |
 
-> 共 **8 个 Secret**。`MYSQL_PASSWORD` 与 `DB_PASSWORD` 指向同一个密码，详见上文财报/IPO 章节的轮换提醒。雪球 `XUEQIU_COOKIE` 已废弃（改用本地 `.env`，由 `scripts/local_xueqiu_fetch.py` 自动刷新）。
+> 共 **9 个 Secret**。`MYSQL_PASSWORD` 与 `DB_PASSWORD` 指向同一个密码，详见上文财报/IPO 章节的轮换提醒。雪球 `XUEQIU_COOKIE` 已废弃（改用本地 `.env`，由 `scripts/local_xueqiu_fetch.py` 自动刷新）。
 
 报告 JSON 的 `fetch_stats` 会包含 `cache_posts`（窗口内缓存条数）与 `api_posts_new`（本次新写入条数）。`streams_used` 含 `MySQLCache`。
 
